@@ -1,8 +1,23 @@
+# server
 FastAPI
 pydantic
+grpcio
+grpcio-tools
 
+# ML
+numpy
+pandas
+pillow
+opencv-python
+matplotlib
 torch
 tensorflow
 
+# security
+hashlib
+opacus
 cryptography
 uvicorn
+
+# storage
+redis
