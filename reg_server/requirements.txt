@@ -1,0 +1,8 @@
+FastAPI
+pydantic
+
+torch
+tensorflow
+
+cryptography
+uvicorn
