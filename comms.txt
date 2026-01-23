@@ -1,0 +1,14 @@
+ignore this file
+
+--- blockchain and edge nodes
+
+1. edge -> blockchain: upload local model
+2. blockchain -> edge: retrieve global model
+
+--- blockchain and central server
+
+1. blockchain -> central server: retrieve local models
+
+--- global blockchain and central servers
+
+1. blockchain -> central server: retrieve local models
