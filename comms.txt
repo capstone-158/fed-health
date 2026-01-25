@@ -12,3 +12,9 @@ ignore this file
 --- global blockchain and central servers
 
 1. blockchain -> central server: retrieve local models
+
+
+rn what to see:
+1. build all models. then do some normal distillation and see how it works out.
+2. look at how the paper can be made better
+3. then start blockchain
