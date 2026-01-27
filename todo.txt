@@ -1,0 +1,9 @@
+rn what to see:
+1. build all models. then do some normal distillation and see how it works out.
+2. look at how the paper can be made better
+3. then start blockchain
+
+
+rn done:
+- resnet18 on BC and pathmnist, on 3x100x100 images with proper train, test, val split, and proper epochs, lr and batch size.
+- alexnet also trained
