@@ -1,42 +1,29 @@
 version: "3.9"
 
 services:
-  reg_server_0:
+  h_node_0:
     build:
-      context: ./reg_server/
+      context: ./h_node/
       dockerfile: Dockerfile
     networks:
       - mednet
     volumes:
       - ./shared:/app/shared
     environment:
-      REGION_ID: 0
+      H_ID: 0
     ports:
       - "8000:8000"
 
-  reg_server_1:
+  h_node_1:
     build:
-      context: ./reg_server/
+      context: ./h_node/
       dockerfile: Dockerfile
     networks:
       - mednet
     volumes:
       - ./shared:/app/shared
     environment:
-      REGION_ID: 1
-    ports:
-      - "8100:8100"
-
-  reg_server_2:
-    build:
-      context: ./reg_server/
-      dockerfile: Dockerfile
-    networks:
-      - mednet
-    volumes:
-      - ./shared:/app/shared
-    environment:
-      REGION_ID: 2
+      H_ID: 1
     ports:
       - "8200:8200"
 
@@ -49,8 +36,11 @@ services:
     volumes:
       - ./shared:/app/shared
     environment:
-      REG_SERVER: reg_server_0,reg_server_1,reg_server_2
-      NUM_REG_SERVERS: "3"
+      - NODE_ID=1
+      - H_NODE_URL=http://h_node:8000
+      - BC_NODE_URL=http://bc_node:5000
+    deploy:
+      replicas: 4
   
 networks:
   mednet:
