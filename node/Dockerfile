@@ -2,10 +2,9 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY requirements.txt .
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+COPY . .
 
 RUN pip install --no-cache-dir -r requirements.txt
-RUN echo "all done but stuck"
-ENTRYPOINT ["/app/start.sh"]
 
+ENV PYTHONPATH="/app"
+CMD ["python3", "server.py"]

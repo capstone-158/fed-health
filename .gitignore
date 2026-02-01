@@ -1,5 +1,6 @@
-data/
-models/
 *pth
+other/
 .vscode
 node_*_data
+*.txt
+__py*

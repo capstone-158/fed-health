@@ -1,10 +1,35 @@
 version: "3.9"
 
 services:
+  bc_node_0:
+    build: ./bc_node
+    networks:
+      - mednet
+    volumes:
+      - ./shared:/app/shared
+    ports:
+      - "5000:5000"
+
+  bc_node_1:
+    build: ./bc_node
+    networks:
+      - mednet
+    volumes:
+      - ./shared:/app/shared
+    ports:
+      - "5100:5000"
+
+  bc_node_2:
+    build: ./bc_node
+    networks:
+      - mednet
+    volumes:
+      - ./shared:/app/shared
+    ports:
+      - "5200:5000"
+
   h_node_0:
-    build:
-      context: ./h_node/
-      dockerfile: Dockerfile
+    build: ./h_node
     networks:
       - mednet
     volumes:
@@ -15,9 +40,7 @@ services:
       - "8000:8000"
 
   h_node_1:
-    build:
-      context: ./h_node/
-      dockerfile: Dockerfile
+    build: ./h_node
     networks:
       - mednet
     volumes:
@@ -25,23 +48,85 @@ services:
     environment:
       H_ID: 1
     ports:
-      - "8200:8200"
+      - "8100:8000"
 
-  node:
-    build:
-      context: ./node
-      dockerfile: Dockerfile
+  h_node_2:
+    build: ./h_node
     networks:
       - mednet
     volumes:
       - ./shared:/app/shared
     environment:
-      - NODE_ID=1
-      - H_NODE_URL=http://h_node:8000
-      - BC_NODE_URL=http://bc_node:5000
-    deploy:
-      replicas: 4
-  
+      H_ID: 2
+    ports:
+      - "8200:8000"
+
+  node_0:
+    build: ./node
+    volumes:
+      - ./data/node_0:/app/data
+      - ./shared:/app/shared
+    environment:
+      NODE_ID: 0
+      H_NODE_URL: http://h_node_0:8000
+    networks:
+      - mednet
+    
+  node_1:
+    build: ./node
+    volumes:
+      - ./data/node_1:/app/data
+      - ./shared:/app/shared
+    environment:
+      NODE_ID: 1
+      H_NODE_URL: http://h_node_0:8001
+    networks:
+      - mednet
+
+  node_2:
+    build: ./node
+    volumes:
+      - ./data/node_2:/app/data
+      - ./shared:/app/shared
+    environment:
+      NODE_ID: 2
+      H_NODE_URL: http://h_node_1:8002
+    networks:
+      - mednet
+
+  node_3:
+    build: ./node
+    volumes:
+      - ./data/node_3:/app/data
+      - ./shared:/app/shared
+    environment:
+      NODE_ID: 3
+      H_NODE_URL: http://h_node_1:8003
+    networks:
+      - mednet
+
+  node_4:
+    build: ./node
+    volumes:
+      - ./data/node_4:/app/data
+      - ./shared:/app/shared
+    environment:
+      NODE_ID: 4
+      H_NODE_URL: http://h_node_2:8004
+    networks:
+      - mednet
+
+  node_5:
+    build: ./node
+    volumes:
+      - ./data/node_5:/app/data
+      - ./shared:/app/shared
+    environment:
+      NODE_ID: 5
+      H_NODE_URL: http://h_node_2:8005
+    networks:
+      - mednet
+
 networks:
   mednet:
     driver: bridge
