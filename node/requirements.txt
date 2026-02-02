@@ -6,13 +6,7 @@ pydantic
 
 # ML
 numpy
-pandas
-# pillow
-# opencv-python
-# matplotlib
 torch
 
 # security
-# opacus
 cryptography
-uvicorn

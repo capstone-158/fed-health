@@ -1,4 +1,5 @@
 import hashlib
+import logging
 from socket import *
 
 def gen_hash(data):
@@ -15,6 +16,16 @@ def create_socket(bind_addr, port):
     sock.bind((bind_addr, port))
 
     return sock
+
+def get_logger():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+
+    logger = logging.getLogger(__name__)
+    return logger
+
 
 '''
 functions needed:

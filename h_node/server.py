@@ -3,15 +3,10 @@ import time
 import threading
 import logging
 from heartbeat_handler import listen
+from shared.commons import *
 
 rounds_completed = 0
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 logger.info("Starting hospital server...")
 

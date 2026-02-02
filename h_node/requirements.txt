@@ -10,7 +10,6 @@ pandas
 # pillow
 # opencv-python
 # matplotlib
-torch
 
 # security
 # opacus
@@ -18,4 +17,4 @@ cryptography
 uvicorn
 
 # storage
-redis[hiredis]
+redis

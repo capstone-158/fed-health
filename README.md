@@ -36,3 +36,5 @@ for macos:
 orb start
 docker compose up --build
 ```
+
+todo: check TODO markers

@@ -1,12 +1,28 @@
 version: "3.9"
 
 services:
+  redis_h0:
+    image: redis:alpine
+    networks:
+      - mednet
+
+  redis_h1:
+    image: redis:alpine
+    networks:
+      - mednet
+
+  redis_h2:
+    image: redis:alpine
+    networks:
+      - mednet
+
   bc_node_0:
     build: ./bc_node
     networks:
       - mednet
     volumes:
       - ./shared:/app/shared
+      - ./bc_node:/app
     ports:
       - "5000:5000"
 
@@ -16,6 +32,7 @@ services:
       - mednet
     volumes:
       - ./shared:/app/shared
+      - ./bc_node:/app
     ports:
       - "5100:5000"
 
@@ -25,6 +42,7 @@ services:
       - mednet
     volumes:
       - ./shared:/app/shared
+      - ./bc_node:/app
     ports:
       - "5200:5000"
 
@@ -34,8 +52,12 @@ services:
       - mednet
     volumes:
       - ./shared:/app/shared
+      - ./h_node:/app
+    depends_on:
+      - redis_h0
     environment:
       H_ID: 0
+      REDIS_HOST: redis_h0
     ports:
       - "8000:8000"
 
@@ -45,8 +67,12 @@ services:
       - mednet
     volumes:
       - ./shared:/app/shared
+      - ./h_node:/app
     environment:
       H_ID: 1
+      REDIS_HOST: redis_h1
+    depends_on:
+      - redis_h1
     ports:
       - "8100:8000"
 
@@ -56,8 +82,12 @@ services:
       - mednet
     volumes:
       - ./shared:/app/shared
+      - ./h_node:/app
     environment:
       H_ID: 2
+      REDIS_HOST: redis_h2
+    depends_on:
+      - redis_h2
     ports:
       - "8200:8000"
 
@@ -66,8 +96,10 @@ services:
     volumes:
       - ./data/node_0:/app/data
       - ./shared:/app/shared
+      - ./node:/app
     environment:
       NODE_ID: 0
+      H_ID: 0
       H_HOST: h_node_0
       H_NODE_URL: http://h_node_0:8000
     networks:
@@ -78,8 +110,10 @@ services:
     volumes:
       - ./data/node_1:/app/data
       - ./shared:/app/shared
+      - ./node:/app
     environment:
       NODE_ID: 1
+      H_ID: 0
       H_HOST: h_node_0
       H_NODE_URL: http://h_node_0:8001
     networks:
@@ -90,8 +124,10 @@ services:
     volumes:
       - ./data/node_2:/app/data
       - ./shared:/app/shared
+      - ./node:/app
     environment:
       NODE_ID: 2
+      H_ID: 1
       H_HOST: h_node_1
       H_NODE_URL: http://h_node_1:8002
     networks:
@@ -102,8 +138,10 @@ services:
     volumes:
       - ./data/node_3:/app/data
       - ./shared:/app/shared
+      - ./node:/app
     environment:
       NODE_ID: 3
+      H_ID: 1
       H_HOST: h_node_1
       H_NODE_URL: http://h_node_1:8003
     networks:
@@ -114,8 +152,10 @@ services:
     volumes:
       - ./data/node_4:/app/data
       - ./shared:/app/shared
+      - ./node:/app
     environment:
       NODE_ID: 4
+      H_ID: 2
       H_HOST: h_node_2
       H_NODE_URL: http://h_node_2:8004
     networks:
@@ -126,8 +166,10 @@ services:
     volumes:
       - ./data/node_5:/app/data
       - ./shared:/app/shared
+      - ./node:/app
     environment:
       NODE_ID: 5
+      H_ID: 2
       H_HOST: h_node_2
       H_NODE_URL: http://h_node_2:8005
     networks:
