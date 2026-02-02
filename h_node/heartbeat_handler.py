@@ -13,25 +13,33 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+node_registry = {}
+
 def listen():
     logger = logging.getLogger(__name__)
-    logger.info(f"Starting heartbeat listener on {os.getenv("H_ID")}")
+    h_id = os.getenv("H_ID", "unknown")
+    logger.info(f"Starting heartbeat listener on h_node_{h_id}")
 
     try:
         sock = create_socket("0.0.0.0", HOSPITAL_HEARTBEAT_PORT)
         sock.listen(5)
-        logger.info(f"Hospital {os.getenv("H_ID")} ready to receive heartbeats...")
+        logger.info(f"Hospital {h_id} ready to receive heartbeats on port {HOSPITAL_HEARTBEAT_PORT}...")
 
         while True:
             client_sock, client_addr = sock.accept()
-            logger.debug(f"Got connection from {client_addr}")
-
+            
             data = client_sock.recv(1024)
+            client_sock.close()
 
             if data:
-                json_data = json.loads(data.decode())
-                print("Data: ",data)
+                status = json.loads(data.decode())
+                node_id = status.get("node_id")
+
+                logger.info(f"Got heartbeat from {client_addr}")
+                
+                # Store in registry (Digital Twin)
+                node_registry[node_id] = status
+                logger.info(f"Heartbeat from node_{node_id}: {status['status']}")
 
     except Exception as e:
-        logger.error(e)
-
+        logger.error(f"Heartbeat listener error: {e}")

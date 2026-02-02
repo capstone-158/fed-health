@@ -1,18 +1,18 @@
 # server
 FastAPI
 pydantic
-grpcio
-grpcio-tools
+# grpcio
+# grpcio-tools
 
 # ML
 numpy
 pandas
-pillow
-opencv-python
-matplotlib
+# pillow
+# opencv-python
+# matplotlib
 torch
 
 # security
-opacus
+# opacus
 cryptography
 uvicorn

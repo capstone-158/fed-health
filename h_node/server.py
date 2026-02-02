@@ -2,6 +2,7 @@
 import time
 import threading
 import logging
+from heartbeat_handler import listen
 
 rounds_completed = 0
 
@@ -14,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 logger.info("Starting hospital server...")
 
-# heartbeat_thread = threading.ThreadError(target=heartbeat_handler.listen(), daemon=True)
+heartbeat_thread = threading.Thread(target=listen, daemon=True)
+heartbeat_thread.start()
 
 while True:
     time.sleep(60)
