@@ -18,4 +18,4 @@ cryptography
 uvicorn
 
 # storage
-redis
+redis[hiredis]

@@ -4,7 +4,7 @@ import json
 import time
 import threading
 from datetime import datetime
-from shared.config import HOSPITAL_HEARTBEAT_PORT
+from shared.config import HOSPITAL_HEARTBEAT_PORT, HEARTBEAT_INTERVAL
 from shared.commons import create_socket
 
 def send_status():
@@ -30,4 +30,4 @@ def send_status():
 def heartbeat_loop():
     while True:
         send_status()
-        time.sleep(3)
+        time.sleep(HEARTBEAT_INTERVAL)

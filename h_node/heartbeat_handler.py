@@ -5,6 +5,7 @@ import time
 import threading
 from socket import *
 import logging
+import redis
 from shared.commons import create_socket
 from shared.config import *
 
