@@ -5,3 +5,12 @@ CLIENTS=2   #clients per round
 
 HOSPITAL_HEARTBEAT_PORT=4000
 HEARTBEAT_INTERVAL=30
+
+MODEL_CHUNK_SIZE=8192*1024*1024
+
+BLOCKCHAIN_LEADER_HOSTNAME="bc_node_0"
+BLOCKCHAIN_PORTS = {
+    "backend_port": 5000,
+    "leader_checkin_port": 8000,
+    "broadcast_port": 7000
+}

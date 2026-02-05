@@ -22,9 +22,3 @@ Workflow:
 REPEAT FOR T ROUNDS
 '''
 
-from fastapi import FastAPI
-
-app = FastAPI()
-
-node_registry = {}
-

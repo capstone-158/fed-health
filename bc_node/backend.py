@@ -41,124 +41,223 @@ block_hash = SHA256(index + prev_hash + payload)
     bc_node to bc_node: communication happens through TCP sockets.
 '''
 
-import time
+from fastapi import FastAPI, Request, HTTPException
 import json
 import hashlib
-import threading
 import os
-from typing import Dict, List
+from socket import *
+from shared.config import BLOCKCHAIN_PORTS, BLOCKCHAIN_LEADER_HOSTNAME, MODEL_CHUNK_SIZE
+from shared.commons import *
+import time
+from ping3 import ping
+import threading
 
-LEDGER_PATH = os.getenv(
-    "LEDGER_PATH", os.path.join(os.path.dirname(__file__), "ledger")
-)
+logger = get_logger()
+app = FastAPI()
 
-class Block:
-    def __init__(self, index, prev_hash, payload, nonce, timestamp=None, block_hash=None):
-        self.index = index
-        self.prev_hash = prev_hash
-        self.timestamp = timestamp or time.time()
-        self.payload = payload
-        self.nonce = nonce
-        self.block_hash = block_hash or self.compute_hash()
+os.makedirs("/models")
 
-    def compute_hash(self):
-        block_data = json.dumps(
-            {
-                "index": self.index,
-                "prev_hash": self.prev_hash,
-                "timestamp": self.timestamp,
-                "payload": self.payload,
-                "nonce": self.nonce
-            },
-            sort_keys=True
-        )
-        return hashlib.sha256(block_data.encode()).hexdigest()
+bc_nodes_registry = {}
 
-    def to_dict(self):
-        return {
-            "index": self.index,
-            "prev_hash": self.prev_hash,
-            "timestamp": self.timestamp,
-            "payload": self.payload,
-            "nonce": self.nonce,
-            "block_hash": self.block_hash
+def register_nodes():
+    try:
+        sock = create_socket("0.0.0.0", BLOCKCHAIN_PORTS["leader_checkin_port"])
+        sock.listen()
+
+        logger.info(f"Leader listening for chekcin on port {BLOCKCHAIN_PORTS['leader_checkin_port']}")
+
+        while True:
+            client_sock, addr = sock.accept()
+
+            with client_sock:
+                try:
+                    data = client_sock.recv(4096).decode().strip()
+                    msg = json.loads(data)
+
+                    logger.info(f"Checkin msg received {msg}")
+
+                    host = msg["hostname"]
+                    bc_nodes_registry[host] = {
+                        "broadcast_port": msg["broadcast_port"],
+                        "backend_url": msg["backend_url"]
+                    }
+
+                    client_sock.sendall(b"OK")
+                except Exception as e:
+                    logger.error(f"Error handling check-in from {addr}: {e}")
+                    client_sock.sendall(b"ERROR")
+
+    except:
+        logger.error("Failed to open socket for checkins. Leader failure.")
+
+
+# TODO: change to heartbeats if needed
+def checkin():
+    time.sleep(2)
+    hostname = os.getenv("BC_NODE_NAME")
+    if not hostname:
+        logger.error("No env vars for hostname")
+        exit(1)
+
+    checkin_msg = {
+        "hostname": hostname,
+        "broadcast_port": BLOCKCHAIN_PORTS["broadcast_port"],
+        "backend_url": f"http://{hostname}:{BLOCKCHAIN_PORTS['backend_port']}"
+    }
+    
+    try:
+        sock = socket(AF_INET, SOCK_STREAM)
+        sock.settimeout(5) 
+        sock.connect((BLOCKCHAIN_LEADER_HOSTNAME, int(BLOCKCHAIN_PORTS["leader_checkin_port"])))
+
+        while True:
+            sock.sendall((json.dumps(checkin_msg) + '\n').encode())
+
+            ack = sock.recv(1024).decode().strip()
+            if ack != "OK":
+                logger.error("Checkin Failed.")
+            else:
+                break
+
+    except Exception as e:
+        logger.error(f"Error in sending check-in msg. Error: {e}")
+
+def send_to_node(node, info, model_path, local_hash):
+    try:
+        sock = socket(AF_INET, SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((node, info["broadcast_port"]))
+        
+        metadata = {
+            "type": "model_broadcast",
+            "node": node,
+            "info": info
         }
+        sock.sendall(json.dumps(metadata).encode())
 
-    @staticmethod
-    def from_dict(d):
-        return Block(
-            index=d["index"],
-            prev_hash=d["prev_hash"],
-            timestamp=d["timestamp"],
-            payload=d["payload"],
-            nonce=d["nonce"],
-            block_hash=d["block_hash"]
-        )
-
-class Ledger:
-    def __init__(self, ledger_name):
-        self.ledger_name = ledger_name
-        self.lock = threading.Lock()
-        os.makedirs(LEDGER_PATH, exist_ok=True)
-        self.file_path = os.path.join(
-            LEDGER_PATH, f"{ledger_name}_chain.json"
-        )
-        self.chain: List[Block] = []
-        self._load()
-
-    def _create_genesis_block(self):
-        if len(self.chain) != 0:
-            return
-        genesis_block = Block(
-            index=0,
-            prev_hash="0",
-            payload={"type": "GENESIS"},
-            nonce=0
-        )
-        self.chain.append(genesis_block)
-        self._persist()
-
-    def _load(self):
-        if not os.path.exists(self.file_path):
-            self._create_genesis_block()
-            return
-        with open(self.file_path, "r") as f:
-            data = json.load(f)
-        self.chain = []
-        for b in data:
-            blk = Block.from_dict(b)
-            self.chain.append(blk)
-        if len(self.chain) == 0:
-            self._create_genesis_block()
-
-    def _persist(self):
-        blocks = []
-        for b in self.chain:
-            blocks.append(b.to_dict())
-        with open(self.file_path, "w") as f:
-            json.dump(blocks, f, indent=2)
-
-    def last_block(self):
-        if len(self.chain) == 0:
+        ack = sock.recv(1024)
+        
+        if ack != b"OK":
+            logger.error(f"Node {node} not ready, received: {ack}")
+            sock.close()
             return None
-        return self.chain[-1]
 
-    def append_block(self, payload):
-        with self.lock:
-            last_block = self.last_block()
-            new_block = Block(
-                index=last_block.index + 1,
-                prev_hash=last_block.block_hash,
-                payload=payload,
-                nonce=0
-            )
-            self.chain.append(new_block)
-            self._persist()
-            return new_block
+        with open(model_path, "rb") as f:
+            while True:
+                chunk = f.read(MODEL_CHUNK_SIZE)
+                if not chunk:
+                    break
+                sock.sendall(chunk)
+        
+        sock.sendall(b"EOF")
 
-ledgers: Dict[str, Ledger] = {
-    "hospital_0": Ledger("hospital_0"),
-    "hospital_1": Ledger("hospital_1"),
-    "hospital_2": Ledger("hospital_2"),
-    "multi_inst": Ledger("multi_inst")
-}
+        response_hash = sock.recv(1024).decode()
+        logger.info(f"Received hash from {node}: {response_hash}")
+
+        sock.close()
+        
+        if response_hash == local_hash:
+            logger.info(f"Hash verified for {node}")
+        else:
+            logger.error(f"Hash mismatch for {node}! Expected {local_hash}, got {response_hash}")
+        
+        return response_hash
+            
+    except Exception as e:
+        logger.error(f"Failed to broadcast to {node}: {e}")
+        return None
+
+# TODO: somehow see if it can be done parallely
+def broadcast(model_path, local_hash):
+    threads = []
+    bc_nodes = bc_nodes_registry.items()
+    results = {}
+
+    def send_wrapper(node, info):
+        results[node] = send_to_node(node, info, model_path, local_hash)
+
+    for node, info in bc_nodes:
+        if ping(node) is not None:
+            t = threading.Thread(target=send_wrapper, args=(node, info))
+            t.start()
+            threads.append(t)
+
+    for t in threads:
+        t.join()
+    
+    verified_count = sum(1 for h in results.values() if h == local_hash)
+    total_count = len(results)
+    
+    logger.info(f"Broadcast complete: {verified_count}/{total_count} nodes verified")
+    
+    return verified_count, total_count, results
+
+def recv_model_and_hash():
+    try:
+        sock = create_socket("0.0.0.0", BLOCKCHAIN_PORTS["broadcast_port"])
+        sock.listen()
+        
+        logger.info(f"Listening for model broadcasts on port {BLOCKCHAIN_PORTS['broadcast_port']}")
+        
+        while True:
+            client_sock, addr = sock.accept()
+            
+            with client_sock:
+                try:
+                    metadata_raw = client_sock.recv(4096).decode()
+                    metadata = json.loads(metadata_raw)
+                    
+                    logger.info(f"Received broadcast metadata from {addr}: {metadata}")
+                    
+                    if metadata.get("type") == "model_broadcast":
+                        client_sock.sendall(b"OK")
+                        logger.info(f"Sent OK to {addr}, ready to receive model")
+                    else:
+                        client_sock.sendall(b"ERROR")
+                        logger.error(f"Invalid metadata type from {addr}")
+                        continue
+                    
+                    hasher = hashlib.sha256()
+                    
+                    while True:
+                        chunk = client_sock.recv(MODEL_CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        
+                        if chunk == b"EOF":
+                            break
+                        
+                        hasher.update(chunk)
+                    
+                    model_hash = hasher.hexdigest()
+                    logger.info(f"Received model from {addr}, hash: {model_hash}")
+                    
+                    client_sock.sendall(model_hash.encode())
+                    
+                except Exception as e:
+                    logger.error(f"Error receiving model from {addr}: {e}")
+    
+    except Exception as e:
+        logger.error(f"Failed to start model receiver: {e}")
+
+
+
+# TODO: fix this api later
+@app.post("/submit_local_model")
+async def submit_local_model(req: Request):
+    # TODO: DONT STORE THE MODEL, FORWARD CHUNKS AS THEY COME
+    metadata = json.loads(req.headers.get("metadata"))
+    node_id = metadata.get("node_id")
+    model_id = metadata.get("model_id")
+
+    logger.info(f"Model upload received from: {node_id}")
+
+    hasher = hashlib.sha256()
+    
+    with open(f"/models/{model_id}", "ab") as f:
+        async for chunk in req.stream():
+            hasher.update(chunk)
+            f.write(chunk)
+        model_hash = hasher.hexdigest()
+
+    os.rename(f"/models/{model_id}", f"/models/{model_hash}")

@@ -17,7 +17,7 @@ def insert_status(hospital_id, node_id, payload):
     '''
     Assuming payload looks like:
         payload = {
-            "state": "training",      # idle | training | uploading | error
+            "state": "training",      idle | training | uploading | error
             "round": "2",
             "epoch": "11"
         }

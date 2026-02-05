@@ -4,8 +4,9 @@ import json
 import time
 import threading
 from datetime import datetime
-from shared.config import HOSPITAL_HEARTBEAT_PORT, HEARTBEAT_INTERVAL
+from shared.config import HOSPITAL_HEARTBEAT_PORT, HEARTBEAT_INTERVAL, MODEL_CHUNK_SIZE
 from shared.commons import create_socket
+import uuid
 
 # TODO: fix the setter functions
 
@@ -60,3 +61,50 @@ def heartbeat_loop():
     while True:
         send_status()
         time.sleep(HEARTBEAT_INTERVAL)
+
+
+def stream_model(path):
+    model_id = uuid.uuid4()
+
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(MODEL_CHUNK_SIZE)
+
+            if not chunk:
+                break
+            yield chunk
+'''
+Edge server uploads the trained model to the hospital’s private blockchain network
+Each bc_node:
+receives (or fetches) the model
+computes the hash
+If hashes match across nodes:
+model is verified
+block is appended to Bi
+
+why would they even differ?
+'''
+def broadcast_to_blockchain_nodes():
+    ...
+
+
+"""
+model metadata must look like this:
+metadata = {
+    "model_id": acf059c8-217b-4e3c-a4c7-accbff22cd9d,
+    "round": 5,
+    "node_id": 2,
+    "timestamp": time.time(),       # might be irrelevant
+    "metrics": {
+        "accuracy": 0.87.
+        "loss": 0.23,
+        "samples": 1000
+    }
+    "model_type": "resnet18",
+}
+
+headers = {
+    'metadata': metadata,
+    'Content-Type': 'application/octet-stream'
+}
+"""

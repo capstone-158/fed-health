@@ -23,6 +23,11 @@ services:
     volumes:
       - ./shared:/app/shared
       - ./bc_node:/app
+    environment:
+      BC_NODE_ID: 0
+      LEADER: True
+      BC_NODE_NAME: bc_node_0
+      BC_NODE_PORT: 5000
     ports:
       - "5000:5000"
 
@@ -33,6 +38,11 @@ services:
     volumes:
       - ./shared:/app/shared
       - ./bc_node:/app
+    environment:
+      BC_NODE_ID: 1
+      LEADER: False
+      BC_NODE_NAME: bc_node_1
+      BC_NODE_PORT: 5000
     ports:
       - "5100:5000"
 
@@ -43,6 +53,11 @@ services:
     volumes:
       - ./shared:/app/shared
       - ./bc_node:/app
+    environment:
+      BC_NODE_ID: 2
+      LEADER: False
+      BC_NODE_NAME: bc_node_2
+      BC_NODE_PORT: 5000
     ports:
       - "5200:5000"
 
@@ -178,3 +193,5 @@ services:
 networks:
   mednet:
     driver: bridge
+
+# ajshdkjasd
