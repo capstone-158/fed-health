@@ -45,6 +45,7 @@ from fastapi import FastAPI, Request, HTTPException
 import json
 import hashlib
 import os
+import queue
 from socket import *
 from shared.config import BLOCKCHAIN_PORTS, BLOCKCHAIN_LEADER_HOSTNAME, MODEL_CHUNK_SIZE
 from shared.commons import *
@@ -122,76 +123,47 @@ def checkin():
     except Exception as e:
         logger.error(f"Error in sending check-in msg. Error: {e}")
 
-def send_to_node(node, info, model_path, local_hash):
+def send_to_node(node, info, chunk_queue):
     try:
         sock = socket(AF_INET, SOCK_STREAM)
-        sock.settimeout(5)
-        sock.connect((node, info["broadcast_port"]))
-        
+        sock.settimeout(10)
+        sock.connect(node, info["broadcast_port"])
+
         metadata = {
             "type": "model_broadcast",
             "node": node,
             "info": info
         }
         sock.sendall(json.dumps(metadata).encode())
-
-        ack = sock.recv(1024)
         
+        ack = sock.recv(1024)
         if ack != b"OK":
-            logger.error(f"Node {node} not ready, received: {ack}")
+            logger.error(f"Node {node} not ready: {ack}")
             sock.close()
             return None
 
-        with open(model_path, "rb") as f:
-            while True:
-                chunk = f.read(MODEL_CHUNK_SIZE)
-                if not chunk:
-                    break
-                sock.sendall(chunk)
-        
+        while True:
+            chunk = chunk_queue.get()
+            if chunk == None:
+                break
+            sock.sendall(chunk)
+
         sock.sendall(b"EOF")
 
         response_hash = sock.recv(1024).decode()
         logger.info(f"Received hash from {node}: {response_hash}")
-
+        
         sock.close()
-        
-        if response_hash == local_hash:
-            logger.info(f"Hash verified for {node}")
-        else:
-            logger.error(f"Hash mismatch for {node}! Expected {local_hash}, got {response_hash}")
-        
+
         return response_hash
-            
+
     except Exception as e:
-        logger.error(f"Failed to broadcast to {node}: {e}")
+        logger.error(f"Error in sending chunk to node. Error: {e}")
         return None
 
-# TODO: somehow see if it can be done parallely
-def broadcast(model_path, local_hash):
-    threads = []
-    bc_nodes = bc_nodes_registry.items()
-    results = {}
 
-    def send_wrapper(node, info):
-        results[node] = send_to_node(node, info, model_path, local_hash)
 
-    for node, info in bc_nodes:
-        if ping(node) is not None:
-            t = threading.Thread(target=send_wrapper, args=(node, info))
-            t.start()
-            threads.append(t)
-
-    for t in threads:
-        t.join()
-    
-    verified_count = sum(1 for h in results.values() if h == local_hash)
-    total_count = len(results)
-    
-    logger.info(f"Broadcast complete: {verified_count}/{total_count} nodes verified")
-    
-    return verified_count, total_count, results
-
+# THIS FUNCTION IS FOR THE RECEIVER SIDE
 def recv_model_and_hash():
     try:
         sock = create_socket("0.0.0.0", BLOCKCHAIN_PORTS["broadcast_port"])
@@ -241,7 +213,6 @@ def recv_model_and_hash():
         logger.error(f"Failed to start model receiver: {e}")
 
 
-
 # TODO: fix this api later
 @app.post("/submit_local_model")
 async def submit_local_model(req: Request):
@@ -252,12 +223,40 @@ async def submit_local_model(req: Request):
 
     logger.info(f"Model upload received from: {node_id}")
 
-    hasher = hashlib.sha256()
-    
-    with open(f"/models/{model_id}", "ab") as f:
-        async for chunk in req.stream():
-            hasher.update(chunk)
-            f.write(chunk)
-        model_hash = hasher.hexdigest()
 
-    os.rename(f"/models/{model_id}", f"/models/{model_hash}")
+    node_queues = {}
+    threads = []
+
+    bc_nodes = bc_nodes_registry.items()
+
+    '''
+    here, we are essentially creating a message queue for each node in the blockchain netowrk thats alive.
+    for each node, a thread is opened which pulls chunks from the queue and sends to the node.
+
+    this creates a mechanism which makes sure parallel, in order delivery to each node at its own pace.
+    '''
+    for node, info in bc_nodes():
+        if ping(node) is not None:
+            q = queue.Queue()
+            node_queues[node] = q
+
+            t = threading.Thread(target=send_to_node, args=(node, info, q))
+            t.start()
+            threads.append(t)
+
+    hasher = hashlib.sha256()
+
+    async for chunk in req.stream():
+        hasher.update(chunk)
+
+        for q in node_queues.values():
+            q.put(chunk)
+    
+    for q in node_queues.values():
+        # basically an EOF flag
+        q.put(None)
+
+    for t in threads:
+        t.join()
+
+    # also need to calculate hash and update the blockchain here

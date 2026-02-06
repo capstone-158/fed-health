@@ -10,22 +10,23 @@ LEDGER_PATH = os.getenv(
 )
 
 class Block:
-    def __init__(self, index, prev_hash, payload, nonce, timestamp=None, block_hash=None):
+    def __init__(self, index, prev_hash, payload, timestamp=None, block_hash=None):
         self.index = index
         self.prev_hash = prev_hash
         self.timestamp = timestamp or time.time()
         self.payload = payload
-        self.nonce = nonce
         self.block_hash = block_hash or self.compute_hash()
 
     def compute_hash(self):
+        """
+        According to paper: block_hash = SHA256(index + prev_hash + payload)
+        """
         block_data = json.dumps(
             {
                 "index": self.index,
                 "prev_hash": self.prev_hash,
                 "timestamp": self.timestamp,
-                "payload": self.payload,
-                "nonce": self.nonce
+                "payload": self.payload
             },
             sort_keys=True
         )
@@ -37,7 +38,6 @@ class Block:
             "prev_hash": self.prev_hash,
             "timestamp": self.timestamp,
             "payload": self.payload,
-            "nonce": self.nonce,
             "block_hash": self.block_hash
         }
 
@@ -48,7 +48,6 @@ class Block:
             prev_hash=d["prev_hash"],
             timestamp=d["timestamp"],
             payload=d["payload"],
-            nonce=d["nonce"],
             block_hash=d["block_hash"]
         )
 
@@ -69,8 +68,7 @@ class Ledger:
         genesis_block = Block(
             index=0,
             prev_hash="0",
-            payload={"type": "GENESIS"},
-            nonce=0
+            payload={"type": "GENESIS"}
         )
         self.chain.append(genesis_block)
         self._persist()
@@ -101,13 +99,19 @@ class Ledger:
         return self.chain[-1]
 
     def append_block(self, payload):
+        """
+        Append a block to the chain.
+        For private blockchain (hospital_X): payload should contain
+            - hospital_id, model_hash, model_id, metrics, trust_score
+        For multi-institutional blockchain: payload should contain
+            - set_of_model_id, set_of_weights, accuracy
+        """
         with self.lock:
             last_block = self.last_block()
             new_block = Block(
                 index=last_block.index + 1,
                 prev_hash=last_block.block_hash,
-                payload=payload,
-                nonce=0
+                payload=payload
             )
             self.chain.append(new_block)
             self._persist()
