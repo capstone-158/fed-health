@@ -84,9 +84,6 @@ block is appended to Bi
 
 why would they even differ?
 '''
-def broadcast_to_blockchain_nodes():
-    ...
-
 
 """
 model metadata must look like this:

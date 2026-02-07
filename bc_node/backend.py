@@ -52,11 +52,12 @@ from shared.commons import *
 import time
 from ping3 import ping
 import threading
+from ledger import ledgers
 
 logger = get_logger()
 app = FastAPI()
 
-os.makedirs("/models")
+# os.makedirs("/models")
 
 bc_nodes_registry = {}
 
@@ -108,7 +109,7 @@ def checkin():
     
     try:
         sock = socket(AF_INET, SOCK_STREAM)
-        sock.settimeout(5) 
+        sock.settimeout(10) 
         sock.connect((BLOCKCHAIN_LEADER_HOSTNAME, int(BLOCKCHAIN_PORTS["leader_checkin_port"])))
 
         while True:
@@ -126,8 +127,8 @@ def checkin():
 def send_to_node(node, info, chunk_queue):
     try:
         sock = socket(AF_INET, SOCK_STREAM)
-        sock.settimeout(10)
-        sock.connect(node, info["broadcast_port"])
+        sock.settimeout(60)
+        sock.connect((node, info["broadcast_port"]))  # Must be a tuple
 
         metadata = {
             "type": "model_broadcast",
@@ -226,8 +227,9 @@ async def submit_local_model(req: Request):
 
     node_queues = {}
     threads = []
+    results = {}
 
-    bc_nodes = bc_nodes_registry.items()
+    bc_nodes = list(bc_nodes_registry.items())
 
     '''
     here, we are essentially creating a message queue for each node in the blockchain netowrk thats alive.
@@ -235,12 +237,17 @@ async def submit_local_model(req: Request):
 
     this creates a mechanism which makes sure parallel, in order delivery to each node at its own pace.
     '''
-    for node, info in bc_nodes():
+    
+    def send_wrapper(node, info, q):
+        """Wrapper to capture return value from send_to_node"""
+        results[node] = send_to_node(node, info, q)
+    
+    for node, info in bc_nodes:
         if ping(node) is not None:
             q = queue.Queue()
             node_queues[node] = q
 
-            t = threading.Thread(target=send_to_node, args=(node, info, q))
+            t = threading.Thread(target=send_wrapper, args=(node, info, q))
             t.start()
             threads.append(t)
 
@@ -259,4 +266,60 @@ async def submit_local_model(req: Request):
     for t in threads:
         t.join()
 
-    # also need to calculate hash and update the blockchain here
+    model_hash = hasher.hexdigest()
+    logger.info(f"Model hash computed: {model_hash}")
+
+    logger.info(f"results: {results}")
+    
+    HM = set(h for h in results.values() if h is not None)
+    all_same = len(HM) == 1 and model_hash in HM if HM else True 
+    verified_count = sum(1 for h in results.values() if h == model_hash)
+    total_count = len(results)
+    
+    logger.info(f"Consensus check: all_same={all_same}, {verified_count}/{total_count} verified")
+    if HM:
+        logger.info(f"Hash set HM: {HM}")
+    
+    # Get hospital_id from metadata (sent by h_node)
+    hospital_id = metadata.get("hospital_id", "hospital_0")
+    
+    if all_same:
+        payload = {
+            "hospital_id": hospital_id,
+            "model_hash": model_hash,
+            "model_id": model_id,
+            "metrics": metadata.get("metrics", {}),
+            "trust_score": 1.0
+        }
+
+        logger.info(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!CONSENSUS MADE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        
+        # Append to blockchain
+        ledger_name = hospital_id if hospital_id in ledgers else "hospital_0"
+        logger.info(f"ledgers: {ledgers}, ledger_name: {ledger_name}")
+        block = ledgers[ledger_name].append_block(payload)
+        logger.info(f"✓ Block {block.index} added to {ledger_name} blockchain")
+        
+        return {
+            "status": "success",
+            "model_hash": model_hash,
+            "block_index": block.index,
+            "blockchain": ledger_name,
+            "consensus": {
+                "all_same": all_same,
+                "verified": verified_count,
+                "total": total_count
+            }
+        }
+    else:
+        logger.error(f"✗ Consensus failed! Hashes don't match.")
+        return {
+            "status": "consensus_failed",
+            "model_hash": model_hash,
+            "consensus": {
+                "all_same": all_same,
+                "verified": verified_count,
+                "total": total_count,
+                "hash_set": list(HM)
+            }
+        }

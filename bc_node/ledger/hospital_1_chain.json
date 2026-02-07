@@ -1,0 +1,11 @@
+[
+  {
+    "index": 0,
+    "prev_hash": "0",
+    "timestamp": 1770473267.9205317,
+    "payload": {
+      "type": "GENESIS"
+    },
+    "block_hash": "507ea85128b3ac70bdb014c03f09f9dd0339180960d31faff482939e26bc56a6"
+  }
+]

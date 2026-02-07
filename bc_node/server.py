@@ -5,6 +5,8 @@ import threading
 import logging
 from backend import checkin, register_nodes, recv_model_and_hash
 from shared.commons import *
+from shared.config import BLOCKCHAIN_PORTS
+import uvicorn
 
 rounds_completed = 0
 
@@ -37,8 +39,15 @@ if leader == "true":
 else:
     checkin()
 
-broadcast_thread = threading.Thread(target=recv_model_and_hash, daemon=True)
-broadcast_thread.start()
 
 while True:
     time.sleep(60)
+    broadcast_thread = threading.Thread(target=recv_model_and_hash, daemon=True)
+    broadcast_thread.start()
+
+    uvicorn.run(
+        "backend:app",
+        host="0.0.0.0",
+        port=BLOCKCHAIN_PORTS["backend_port"],
+        reload=False
+    )

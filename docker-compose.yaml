@@ -72,6 +72,7 @@ services:
       - redis_h0
     environment:
       H_ID: 0
+      H_NODE_NAME: hospital_0
       REDIS_HOST: redis_h0
     ports:
       - "8000:8000"
@@ -85,6 +86,7 @@ services:
       - ./h_node:/app
     environment:
       H_ID: 1
+      H_NODE_NAME: hospital_1
       REDIS_HOST: redis_h1
     depends_on:
       - redis_h1
@@ -100,6 +102,7 @@ services:
       - ./h_node:/app
     environment:
       H_ID: 2
+      H_NODE_NAME: hospital_2
       REDIS_HOST: redis_h2
     depends_on:
       - redis_h2
@@ -111,6 +114,7 @@ services:
     volumes:
       - ./data/node_0:/app/data
       - ./shared:/app/shared
+      - ./other/models/:/app/models
       - ./node:/app
     environment:
       NODE_ID: 0
@@ -126,6 +130,7 @@ services:
       - ./data/node_1:/app/data
       - ./shared:/app/shared
       - ./node:/app
+      - ./other/models/:/app/models
     environment:
       NODE_ID: 1
       H_ID: 0
@@ -140,6 +145,7 @@ services:
       - ./data/node_2:/app/data
       - ./shared:/app/shared
       - ./node:/app
+      - ./other/models/:/app/models
     environment:
       NODE_ID: 2
       H_ID: 1
@@ -153,6 +159,7 @@ services:
     volumes:
       - ./data/node_3:/app/data
       - ./shared:/app/shared
+      - ./other/models/:/app/models
       - ./node:/app
     environment:
       NODE_ID: 3
@@ -167,6 +174,7 @@ services:
     volumes:
       - ./data/node_4:/app/data
       - ./shared:/app/shared
+      - ./other/models/:/app/models
       - ./node:/app
     environment:
       NODE_ID: 4
@@ -182,6 +190,7 @@ services:
       - ./data/node_5:/app/data
       - ./shared:/app/shared
       - ./node:/app
+      - ./other/models/:/app/models
     environment:
       NODE_ID: 5
       H_ID: 2
@@ -193,5 +202,3 @@ services:
 networks:
   mednet:
     driver: bridge
-
-# ajshdkjasd
