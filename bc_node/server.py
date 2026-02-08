@@ -39,15 +39,19 @@ if leader == "true":
 else:
     checkin()
 
+broadcast_thread = threading.Thread(target=recv_model_and_hash, daemon=True)
+broadcast_thread.start()
 
+logger.info(f"Starting FastAPI server on port {BLOCKCHAIN_PORTS['backend_port']}")
 while True:
-    time.sleep(60)
-    broadcast_thread = threading.Thread(target=recv_model_and_hash, daemon=True)
-    broadcast_thread.start()
-
-    uvicorn.run(
-        "backend:app",
-        host="0.0.0.0",
-        port=BLOCKCHAIN_PORTS["backend_port"],
-        reload=False
-    )
+    try:
+        uvicorn.run(
+            "backend:app",
+            host="0.0.0.0",
+            port=BLOCKCHAIN_PORTS["backend_port"],
+            reload=False
+        )
+    except Exception as e:
+        logger.error(f"Server crashed: {e}")
+        logger.info("Restarting in 5 seconds...")
+        time.sleep(5)

@@ -7,5 +7,22 @@
       "type": "GENESIS"
     },
     "block_hash": "f02a488ee6b50a6d65e21983d0e328d7b5d9e55a8ef816b23994f0ce41be2f9c"
+  },
+  {
+    "index": 1,
+    "prev_hash": "f02a488ee6b50a6d65e21983d0e328d7b5d9e55a8ef816b23994f0ce41be2f9c",
+    "timestamp": 1770542940.7642343,
+    "payload": {
+      "hospital_id": "hospital_2",
+      "model_hash": "e1c64b3c5e0ff1b3212ae59c3e6562718b32d5176c5b7afa4354ba818d6ef665",
+      "model_id": "4b125036-c7e2-455a-8207-5378f2b22e19",
+      "metrics": {
+        "accuracy": 0.87,
+        "loss": 0.23,
+        "samples": 1000
+      },
+      "trust_score": 1.0
+    },
+    "block_hash": "2964358b1fa11196925c798c34007e44152df5255ef4e361222eae9f515b021d"
   }
 ]

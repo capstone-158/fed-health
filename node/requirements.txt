@@ -1,6 +1,7 @@
 # server
 FastAPI
 pydantic
+httpx
 # grpcio
 # grpcio-tools
 

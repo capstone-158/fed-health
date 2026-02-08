@@ -5,3 +5,4 @@ node_*_data
 *.txt
 __py*
 data/
+*md

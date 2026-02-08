@@ -120,7 +120,6 @@ services:
       NODE_ID: 0
       H_ID: 0
       H_HOST: h_node_0
-      H_NODE_URL: http://h_node_0:8000
     networks:
       - mednet
     
@@ -135,7 +134,6 @@ services:
       NODE_ID: 1
       H_ID: 0
       H_HOST: h_node_0
-      H_NODE_URL: http://h_node_0:8001
     networks:
       - mednet
 
@@ -150,7 +148,6 @@ services:
       NODE_ID: 2
       H_ID: 1
       H_HOST: h_node_1
-      H_NODE_URL: http://h_node_1:8002
     networks:
       - mednet
 
@@ -165,7 +162,6 @@ services:
       NODE_ID: 3
       H_ID: 1
       H_HOST: h_node_1
-      H_NODE_URL: http://h_node_1:8003
     networks:
       - mednet
 
@@ -180,7 +176,6 @@ services:
       NODE_ID: 4
       H_ID: 2
       H_HOST: h_node_2
-      H_NODE_URL: http://h_node_2:8004
     networks:
       - mednet
 
@@ -195,7 +190,6 @@ services:
       NODE_ID: 5
       H_ID: 2
       H_HOST: h_node_2
-      H_NODE_URL: http://h_node_2:8005
     networks:
       - mednet
 

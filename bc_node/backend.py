@@ -197,7 +197,9 @@ def recv_model_and_hash():
                         if not chunk:
                             break
                         
-                        if chunk == b"EOF":
+                        if chunk.endswith(b"EOF"):
+                            if len(chunk) > 3:
+                                hasher.update(chunk[:-3])
                             break
                         
                         hasher.update(chunk)
