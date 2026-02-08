@@ -288,6 +288,7 @@ async def submit_local_model(req: Request):
     if all_same:
         payload = {
             "hospital_id": hospital_id,
+            "node_id": metadata.get("node_id"),
             "model_hash": model_hash,
             "model_id": model_id,
             "metrics": metadata.get("metrics", {}),
