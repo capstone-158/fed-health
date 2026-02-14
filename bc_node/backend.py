@@ -52,7 +52,8 @@ from shared.commons import *
 import time
 from ping3 import ping
 import threading
-from ledger import ledgers
+from ledger import ledgers, Block
+import httpx
 
 logger = get_logger()
 app = FastAPI()
@@ -302,6 +303,25 @@ async def submit_local_model(req: Request):
         logger.info(f"ledgers: {ledgers}, ledger_name: {ledger_name}")
         block = ledgers[ledger_name].append_block(payload)
         logger.info(f"✓ Block {block.index} added to {ledger_name} blockchain")
+
+        leader_name = os.getenv("BC_NODE_NAME")
+        for node, info in bc_nodes_registry.items():
+            if node == leader_name:
+                continue
+
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    await client.post(
+                        f"http://{node}:{BLOCKCHAIN_PORTS['backend_port']}/replicate_block",
+                        json={
+                            "ledger_name": ledger_name,
+                            "block": block.to_dict()
+                        }
+                    )
+                logger.info(f"Replicated block to {node}")
+            except Exception as e:
+                logger.error(f"Failed to replicate block to {node}: {e}")
+
         
         return {
             "status": "success",
@@ -326,3 +346,23 @@ async def submit_local_model(req: Request):
                 "hash_set": list(HM)
             }
         }
+    
+@app.post("/replicate_block")
+async def replicate_block(data: dict):
+    ledger_name = data.get("ledger_name")
+    block_dict = data.get("block")
+    if ledger_name not in ledgers:
+        raise HTTPException(status_code=400, detail="Invalid ledger")
+
+    block = Block.from_dict(block_dict)
+    ledger = ledgers[ledger_name]
+    last_block = ledger.last_block()
+    
+    if block.prev_hash != last_block.block_hash:
+        raise HTTPException(status_code=400, detail="Chain mismatch")
+    with ledger.lock:
+        ledger.chain.append(block)
+        ledger._persist()
+
+    logger.info(f"Replicated block {block.index} into {ledger_name}")
+    return {"status": "replicated"}
