@@ -1,14 +1,10 @@
 import hashlib
 import logging
 from socket import *
-
-def gen_hash(data):
-    if hasattr(data, "read"):
-        content = data.read()
-    else:
-        content = data
-    
-    return hashlib.sha256(content.encode()).hexdigest()
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from cryptography.hazmat.primitives import serialization
+import base64
+import json
 
 def create_socket(bind_addr, port):
     sock = socket(AF_INET, SOCK_STREAM)
@@ -28,9 +24,17 @@ def get_logger():
     return logger
 
 
-'''
-functions needed:
-- sign_data() using private key
-- hash_data()
-- verify_signature()
-'''
+def verify_certificate(certificate, public_key_pem):
+    signature = base64.b64decode(certificate.pop("signature"))
+
+    cert_bytes = json.dumps(
+        certificate,
+        sort_keys=True,
+        separators=(",", ":")
+    ).encode("utf-8")
+
+    public_key = serialization.load_pem_public_key(public_key_pem)
+
+    public_key.verify(signature, cert_bytes)
+
+    return True

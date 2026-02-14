@@ -14,3 +14,9 @@ BLOCKCHAIN_PORTS = {
     "leader_checkin_port": 8000,
     "broadcast_port": 7000
 }
+
+NODE_REGISTRY = {
+    "0": "hospital_0",
+    "1": "hospital_0",
+    "2": "hospital_1",
+}
