@@ -246,13 +246,12 @@ async def submit_local_model(req: Request):
         results[node] = send_to_node(node, info, q)
     
     for node, info in bc_nodes:
-        if ping(node) is not None:
-            q = queue.Queue()
-            node_queues[node] = q
+        q = queue.Queue()
+        node_queues[node] = q
 
-            t = threading.Thread(target=send_wrapper, args=(node, info, q))
-            t.start()
-            threads.append(t)
+        t = threading.Thread(target=send_wrapper, args=(node, info, q))
+        t.start()
+        threads.append(t)
 
     hasher = hashlib.sha256()
 
@@ -267,7 +266,7 @@ async def submit_local_model(req: Request):
         q.put(None)
 
     for t in threads:
-        t.join()
+        t.join(timeout=30)  # 30 second timeout per thread
 
     model_hash = hasher.hexdigest()
     logger.info(f"Model hash computed: {model_hash}")
@@ -347,6 +346,7 @@ async def submit_local_model(req: Request):
             }
         }
     
+# TODO: CHANGE TO SOCKETS. DELETE THIS API
 @app.post("/replicate_block")
 async def replicate_block(data: dict):
     ledger_name = data.get("ledger_name")

@@ -1,21 +1,8 @@
-# server
-FastAPI
-pydantic
+cryptography
+fastapi
 httpx
-# grpcio
-# grpcio-tools
-
-# ML
 numpy
 pandas
-# pillow
-# opencv-python
-# matplotlib
-
-# security
-# opacus
-cryptography
-uvicorn
-
-# storage
+pydantic
 redis
+uvicorn

@@ -8,8 +8,6 @@ from shared.commons import *
 from shared.config import BLOCKCHAIN_PORTS
 import uvicorn
 
-rounds_completed = 0
-
 logger = get_logger()
 logger.info("Starting blockchain node server...")
 

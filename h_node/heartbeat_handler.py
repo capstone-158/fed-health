@@ -5,10 +5,9 @@ import time
 import threading
 from socket import *
 import logging
-import redis
 from shared.commons import *
 from shared.config import *
-import db_utils
+from shared import state_manager
 
 logger = get_logger()
 
@@ -48,7 +47,12 @@ def listen():
 
                 logger.info(f"Got heartbeat from {client_addr}")
                 logger.info(f"payload written is: {status}")
-                db_utils.insert_status(h_id, node_id, status)
+                state_manager.update_node_status(
+                    h_id, node_id, 
+                    state=status.get("state"),
+                    round_id=status.get("round"),
+                    epoch=status.get("epoch")
+                )
                 logger.info(f"Heartbeat from node_{node_id}: {status.get('state')}")
 
     except Exception as e:

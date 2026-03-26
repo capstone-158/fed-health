@@ -126,7 +126,7 @@ If hashes match across nodes:
 model is verified
 block is appended to Bi
 
-why would they even differ?
+why would they even differ? : Man in the middle attack
 '''
 
 """
@@ -211,3 +211,10 @@ if __name__ == "__main__":
         # Default: run heartbeat loop
         logger.info("Starting heartbeat loop...")
         heartbeat_loop()
+
+def handle_training(epoch_num, round_num, node_state):
+    # load_dataset()
+    # load_global_model() - API
+
+    # call the training function, pass the node_state to that function and set state in that function
+    node_state.set_training(epoch_num, round_num)

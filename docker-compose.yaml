@@ -21,8 +21,9 @@ services:
     networks:
       - mednet
     volumes:
-      - ./shared:/app/shared
       - ./bc_node:/app
+      - ./shared:/app/shared:ro
+      - ./bc_node/ledger:/app/ledger
     environment:
       BC_NODE_ID: 0
       LEADER: True
@@ -36,8 +37,9 @@ services:
     networks:
       - mednet
     volumes:
-      - ./shared:/app/shared
       - ./bc_node:/app
+      - ./shared:/app/shared:ro
+      - ./bc_node/ledger:/app/ledger
     environment:
       BC_NODE_ID: 1
       LEADER: False
@@ -51,8 +53,9 @@ services:
     networks:
       - mednet
     volumes:
-      - ./shared:/app/shared
       - ./bc_node:/app
+      - ./shared:/app/shared:ro
+      - ./bc_node/ledger:/app/ledger
     environment:
       BC_NODE_ID: 2
       LEADER: False
@@ -66,14 +69,17 @@ services:
     networks:
       - mednet
     volumes:
-      - ./shared:/app/shared
       - ./h_node:/app
+      - ./shared:/app/shared:ro
+      - ./h_node/secrets:/app/secrets
+      - ./h_node/cached:/app/cached
     depends_on:
       - redis_h0
     environment:
       H_ID: 0
       H_NODE_NAME: hospital_0
       REDIS_HOST: redis_h0
+      nodes: "node_0,node_1"
     ports:
       - "8000:8000"
 
@@ -82,12 +88,15 @@ services:
     networks:
       - mednet
     volumes:
-      - ./shared:/app/shared
       - ./h_node:/app
+      - ./shared:/app/shared:ro
+      - ./h_node/secrets:/app/secrets
+      - ./h_node/cached:/app/cached
     environment:
       H_ID: 1
       H_NODE_NAME: hospital_1
       REDIS_HOST: redis_h1
+      nodes: "node_2,node_3"
     depends_on:
       - redis_h1
     ports:
@@ -98,12 +107,15 @@ services:
     networks:
       - mednet
     volumes:
-      - ./shared:/app/shared
       - ./h_node:/app
+      - ./shared:/app/shared:ro
+      - ./h_node/secrets:/app/secrets
+      - ./h_node/cached:/app/cached
     environment:
       H_ID: 2
       H_NODE_NAME: hospital_2
       REDIS_HOST: redis_h2
+      nodes: "node_4,node_5"
     depends_on:
       - redis_h2
     ports:
@@ -112,84 +124,90 @@ services:
   node_0:
     build: ./node
     volumes:
-      - ./data/node_0:/app/data
-      - ./shared:/app/shared
-      - ./other/models/:/app/models
       - ./node:/app
+      - ./data/node_0:/app/data
+      - ./shared:/app/shared:ro
+      - ./other/models:/app/models:ro
     environment:
       NODE_ID: 0
       H_ID: 0
       H_HOST: h_node_0
+      REDIS_HOST: redis_h0
     networks:
       - mednet
     
   node_1:
     build: ./node
     volumes:
-      - ./data/node_1:/app/data
-      - ./shared:/app/shared
       - ./node:/app
-      - ./other/models/:/app/models
+      - ./data/node_1:/app/data
+      - ./shared:/app/shared:ro
+      - ./other/models:/app/models:ro
     environment:
       NODE_ID: 1
       H_ID: 0
       H_HOST: h_node_0
+      REDIS_HOST: redis_h0
     networks:
       - mednet
 
   node_2:
     build: ./node
     volumes:
-      - ./data/node_2:/app/data
-      - ./shared:/app/shared
       - ./node:/app
-      - ./other/models/:/app/models
+      - ./data/node_2:/app/data
+      - ./shared:/app/shared:ro
+      - ./other/models:/app/models:ro
     environment:
       NODE_ID: 2
       H_ID: 1
       H_HOST: h_node_1
+      REDIS_HOST: redis_h1
     networks:
       - mednet
 
   node_3:
     build: ./node
     volumes:
-      - ./data/node_3:/app/data
-      - ./shared:/app/shared
-      - ./other/models/:/app/models
       - ./node:/app
+      - ./data/node_3:/app/data
+      - ./shared:/app/shared:ro
+      - ./other/models:/app/models:ro
     environment:
       NODE_ID: 3
       H_ID: 1
       H_HOST: h_node_1
+      REDIS_HOST: redis_h1
     networks:
       - mednet
 
   node_4:
     build: ./node
     volumes:
-      - ./data/node_4:/app/data
-      - ./shared:/app/shared
-      - ./other/models/:/app/models
       - ./node:/app
+      - ./data/node_4:/app/data
+      - ./shared:/app/shared:ro
+      - ./other/models:/app/models:ro
     environment:
       NODE_ID: 4
       H_ID: 2
       H_HOST: h_node_2
+      REDIS_HOST: redis_h2
     networks:
       - mednet
 
   node_5:
     build: ./node
     volumes:
-      - ./data/node_5:/app/data
-      - ./shared:/app/shared
       - ./node:/app
-      - ./other/models/:/app/models
+      - ./data/node_5:/app/data
+      - ./shared:/app/shared:ro
+      - ./other/models:/app/models:ro
     environment:
       NODE_ID: 5
       H_ID: 2
       H_HOST: h_node_2
+      REDIS_HOST: redis_h2
     networks:
       - mednet
 

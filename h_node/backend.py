@@ -17,6 +17,8 @@ Fed FL Workflow:
 REPEAT FOR T ROUNDS
 '''
 
+# TODO: use the keys and implement tamperproof append
+
 from fastapi import FastAPI, Request, HTTPException, Header
 import httpx
 import json
@@ -96,3 +98,5 @@ async def get_public_key():
         "hospital_id": os.getenv("H_ID"),
         "public_key": pub_key
     }
+
+# TODO: write an api for performing fedavg. api called by the orchestrator.

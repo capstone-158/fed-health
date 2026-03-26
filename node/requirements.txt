@@ -1,13 +1,9 @@
-# server
-FastAPI
-pydantic
-httpx
-# grpcio
-# grpcio-tools
-
-# ML
-numpy
-torch
-
-# security
 cryptography
+fastapi
+httpx
+medmnist
+numpy
+pydantic
+redis
+torch
+torchvision

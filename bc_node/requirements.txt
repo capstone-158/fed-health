@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-pydantic
 cryptography
-ping3
+fastapi
 httpx
+ping3
+pydantic
+uvicorn
