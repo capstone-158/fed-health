@@ -6,3 +6,4 @@ node_*_data
 __py*
 data/
 *md
+.DS_Store
