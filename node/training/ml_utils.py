@@ -5,8 +5,14 @@ import torch.nn.functional as F
 import itertools
 from torch.utils.data import TensorDataset, DataLoader, random_split
 import os
-from models import *
+from .models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
+from shared.state_manager import get_hospital_current_round
+from shared.config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS
 
+WEIGHTS_DIR = "weights"
+os.makedirs(WEIGHTS_DIR, exist_ok=True)
+
+GLOBAL_WEIGHTS_PATH = os.path.join(WEIGHTS_DIR, "global_weights.pt")
 NUM_CLASSES = 9
 
 def get_colon_data():
@@ -192,6 +198,8 @@ def perform_fedavg(client_updates):
 
         for key in state_dict.keys():
             avg_state_dict[key] += state_dict[key] * weight 
+    
+    torch.save(avg_state_dict, GLOBAL_WEIGHTS_PATH)
 
     return avg_state_dict #global model weights after averaging
 
@@ -242,6 +250,7 @@ def preprocess_and_save():
     
     print("Resized data saved to 'processed_colon.pt'")
 
+
 def get_model(model_type):
     if model_type == "resnet":
         return AdaptedResNet18(NUM_CLASSES)
@@ -252,9 +261,19 @@ def get_model(model_type):
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
+def load_init_weights(model_type):
+    round_num = get_hospital_current_round()
+
+    if round_num == 0:
+        model = get_model(model_type)
+        return model.state_dict()
+    else:
+        if not os.path.exists(GLOBAL_WEIGHTS_PATH):
+            raise FileNotFoundError(f"{GLOBAL_WEIGHTS_PATH} not found")
+        return torch.load(GLOBAL_WEIGHTS_PATH, map_location="cpu")
+
 def client_update(global_weights, model_type, client_dataset):
     model = get_model(model_type).to(DEVICE)
-
     # Load global weights, same for all clients so all start from same point
     model.load_state_dict(global_weights)
 
@@ -264,7 +283,7 @@ def client_update(global_weights, model_type, client_dataset):
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
 
-    for epoch in range(LOCAL_EPOCHS):
+    for epoch in range(EPOCHS):
         total_loss = 0
 
         for x, y in train_loader:
@@ -278,6 +297,6 @@ def client_update(global_weights, model_type, client_dataset):
 
             total_loss += loss.item()
 
-        #print(f"[Client] Epoch {epoch+1}, Loss: {total_loss/len(train_loader):.4f}")
+            
 
     return model.state_dict(), len(client_dataset)
