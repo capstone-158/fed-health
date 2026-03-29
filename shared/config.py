@@ -1,6 +1,8 @@
+import torch
 ROUNDS=10
 EPOCHS=20
 LEARNING_RATE=0.001
+NUM_CLASSES=9
 CLIENTS=2   #clients per round
 BATCH_SIZE=128
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

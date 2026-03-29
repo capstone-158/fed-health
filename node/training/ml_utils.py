@@ -4,32 +4,32 @@ from torchvision import transforms
 import torch.nn.functional as F
 import itertools
 from torch.utils.data import TensorDataset, DataLoader, random_split
+import sys
 import os
-from .models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
+from models import AdaptedAlexNet, ImprovedNet, AdaptedResNet18
 from shared.state_manager import get_hospital_current_round
-from shared.config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS
+from shared.config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_CLASSES
 
 WEIGHTS_DIR = "weights"
 os.makedirs(WEIGHTS_DIR, exist_ok=True)
-
 GLOBAL_WEIGHTS_PATH = os.path.join(WEIGHTS_DIR, "global_weights.pt")
-NUM_CLASSES = 9
+
+from torchvision import transforms
+from medmnist import PathMNIST
 
 def get_colon_data():
-    data_path = 'processed_colon.pt' 
-    
-    if not os.path.exists(data_path):
-        raise FileNotFoundError(f" '{data_path}' not found!")
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Resize((100, 100), antialias=True),
+        transforms.Normalize(mean=[0.5], std=[0.5])
+    ])
 
-    #loading pre-processed data 100x100
-    print(f"Loading pre-processed data from {data_path}...")
-    data = torch.load(data_path)
-    
-    # Creating TensorDatasets
-    train_dataset = TensorDataset(data['train_x'], data['train_y'])
-    val_dataset = TensorDataset(data['val_x'], data['val_y'])
-    test_dataset = TensorDataset(data['test_x'], data['test_y'])
-    
+    train_dataset = PathMNIST(split='train', transform=transform, download=True)
+    val_dataset = PathMNIST(split='val', transform=transform, download=True)
+    test_dataset = PathMNIST(split='test', transform=transform, download=True)
+
+    return train_dataset, val_dataset, test_dataset
+
     return train_dataset, val_dataset, test_dataset
 
 #data splitting according to the hierarchical structure of hospitals and clients
@@ -203,53 +203,6 @@ def perform_fedavg(client_updates):
 
     return avg_state_dict #global model weights after averaging
 
-def preprocess_and_save():
-    print("Resizing 28x28 -> 100x100)...")
-    
-    # Define the resize transform
-    resize_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Resize((100, 100), antialias=True),
-        transforms.Normalize(mean=[.5], std=[.5])
-    ])
-
-    # Load the raw data (Train, Val, Test)
-    print("   Loading Raw Data...")
-    train_raw = PathMNIST(split='train', transform=resize_transform, download=True)
-    val_raw = PathMNIST(split='val', transform=resize_transform, download=True)
-    test_raw = PathMNIST(split='test', transform=resize_transform, download=True)
-
-    # Helper to process a dataset into a single Tensor
-    def process_split(dataset, name):
-        print(f"   Processing {name} set ({len(dataset)} images)...")
-        loader = torch.utils.data.DataLoader(dataset, batch_size=1000, shuffle=False)
-        all_x = []
-        all_y = []
-        
-        for x, y in loader:
-            all_x.append(x)
-            all_y.append(y)
-            
-        # Concatenate into one big tensor
-        x_tensor = torch.cat(all_x)
-        y_tensor = torch.cat(all_y)
-        return x_tensor, y_tensor
-
-    # Process all splits
-    train_x, train_y = process_split(train_raw, "Train")
-    val_x, val_y = process_split(val_raw, "Val")
-    test_x, test_y = process_split(test_raw, "Test")
-
-    # Save to disk
-    print("Saving to 'processed_colon.pt'...")
-    torch.save({
-        'train_x': train_x, 'train_y': train_y,
-        'val_x': val_x, 'val_y': val_y,
-        'test_x': test_x, 'test_y': test_y
-    }, 'processed_colon.pt')
-    
-    print("Resized data saved to 'processed_colon.pt'")
-
 
 def get_model(model_type):
     if model_type == "resnet":
@@ -274,7 +227,6 @@ def load_init_weights(model_type):
 
 def client_update(global_weights, model_type, client_dataset):
     model = get_model(model_type).to(DEVICE)
-    # Load global weights, same for all clients so all start from same point
     model.load_state_dict(global_weights)
 
     train_loader = DataLoader(client_dataset, batch_size=BATCH_SIZE, shuffle=True)
@@ -284,10 +236,11 @@ def client_update(global_weights, model_type, client_dataset):
     criterion = torch.nn.CrossEntropyLoss()
 
     for epoch in range(EPOCHS):
-        total_loss = 0
+        total_loss = 0.0
 
-        for x, y in train_loader:
-            x, y = x.to(DEVICE), y.to(DEVICE)
+        for i, (x, y) in enumerate(train_loader):
+            x = x.to(DEVICE)
+            y = y.squeeze().long().to(DEVICE)
 
             optimizer.zero_grad()
             outputs = model(x)
@@ -296,7 +249,33 @@ def client_update(global_weights, model_type, client_dataset):
             optimizer.step()
 
             total_loss += loss.item()
+            if i % 100 == 0:
+                print(f"Epoch {epoch+1}, Batch {i}/{len(train_loader)}")
+        avg_loss = total_loss / len(train_loader)
 
-            
+        train_acc = evaluate_model(model, client_dataset)
+
+        print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {avg_loss:.4f} | Train Acc: {train_acc:.2f}%")
 
     return model.state_dict(), len(client_dataset)
+
+ 
+
+def evaluate_model(model, dataset):
+    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
+    model.eval()
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(DEVICE)
+            y = y.squeeze().long().to(DEVICE)
+
+            outputs = model(x)
+            _, predicted = torch.max(outputs, 1)
+
+            total += y.size(0)
+            correct += (predicted == y).sum().item()
+
+    return 100.0 * correct / total

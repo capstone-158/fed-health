@@ -3,7 +3,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import torch.nn as nn
 from torchvision import models
-from shared.config import LEARNING_RATE, BATCH_SIZE, EPOCHS
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 NUM_CLASSES = 9
