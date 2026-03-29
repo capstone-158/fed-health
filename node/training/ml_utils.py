@@ -6,7 +6,7 @@ import itertools
 from torch.utils.data import TensorDataset, DataLoader, random_split
 import sys
 import os
-from models import AdaptedAlexNet, ImprovedNet, AdaptedResNet18
+from node.training.models import AdaptedAlexNet, ImprovedNet, AdaptedResNet18
 from shared.state_manager import get_hospital_current_round
 from shared.config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_CLASSES
 
@@ -19,16 +19,17 @@ from medmnist import PathMNIST
 
 def get_colon_data():
     transform = transforms.Compose([
-        transforms.ToTensor(),
         transforms.Resize((100, 100), antialias=True),
-        transforms.Normalize(mean=[0.5], std=[0.5])
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
     ])
 
     train_dataset = PathMNIST(split='train', transform=transform, download=True)
     val_dataset = PathMNIST(split='val', transform=transform, download=True)
     test_dataset = PathMNIST(split='test', transform=transform, download=True)
-
-    return train_dataset, val_dataset, test_dataset
 
     return train_dataset, val_dataset, test_dataset
 
