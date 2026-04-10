@@ -6,9 +6,11 @@ import itertools
 from torch.utils.data import TensorDataset, DataLoader, random_split
 import sys
 import os
-from node.training.models import AdaptedAlexNet, ImprovedNet, AdaptedResNet18
+from .models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
 from shared.state_manager import get_hospital_current_round
-from shared.config import DEVICE, BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_CLASSES
+from shared.config import BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_CLASSES
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 WEIGHTS_DIR = "weights"
 os.makedirs(WEIGHTS_DIR, exist_ok=True)
@@ -215,7 +217,7 @@ def get_model(model_type):
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
-def load_init_weights(model_type):
+def load_global_weights(model_type):
     round_num = get_hospital_current_round()
 
     if round_num == 0:

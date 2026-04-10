@@ -1,4 +1,5 @@
 import hashlib
+import os
 import logging
 from socket import *
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
@@ -38,3 +39,9 @@ def verify_certificate(certificate, public_key_pem):
     public_key.verify(signature, cert_bytes)
 
     return True
+
+def get_data_path():
+    NODE_ID = os.getenv("NODE_ID")
+    num = str(int(NODE_ID) % 2)
+
+    return f"/app/shared/datasets/pathmnist_{num}"

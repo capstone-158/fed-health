@@ -4,3 +4,4 @@ httpx
 ping3
 pydantic
 uvicorn
+# torch

@@ -125,7 +125,6 @@ services:
     build: ./node
     volumes:
       - ./node:/app
-      - ./data/node_0:/app/data
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
     environment:
@@ -140,7 +139,6 @@ services:
     build: ./node
     volumes:
       - ./node:/app
-      - ./data/node_1:/app/data
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
     environment:
@@ -155,7 +153,6 @@ services:
     build: ./node
     volumes:
       - ./node:/app
-      - ./data/node_2:/app/data
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
     environment:
@@ -170,7 +167,6 @@ services:
     build: ./node
     volumes:
       - ./node:/app
-      - ./data/node_3:/app/data
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
     environment:
@@ -185,7 +181,6 @@ services:
     build: ./node
     volumes:
       - ./node:/app
-      - ./data/node_4:/app/data
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
     environment:
@@ -200,7 +195,6 @@ services:
     build: ./node
     volumes:
       - ./node:/app
-      - ./data/node_5:/app/data
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
     environment:

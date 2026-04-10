@@ -1,3 +1,5 @@
+import os
+
 # this is where all the threads run
 import time
 import threading
@@ -8,8 +10,14 @@ import os
 from shared import state_manager
 from main import handle_training, node_state
 import asyncio
+from training.ml_utils import client_update
+from shared.commons import get_data_path
+
+DATA_PATH = get_data_path()
 
 logger = get_logger()
+logger.info(f'DATA PATH IS: {DATA_PATH}!!!!!!!!!!!!!!!!!!!!!')
+logger.info(type(os.getenv("NODE_ID")))
 
 rounds_completed = 0
 
@@ -17,6 +25,7 @@ logger.info("Starting edge Server...")
 status_thread = threading.Thread(target=heartbeat_loop, daemon=True)
 status_thread.start()
 
+# TODO: add a while look to wait for a main signal. upon recieving the main signal, only then the real training stuff starts
 def listen(channel_name, redis_obj):
     pubsub = redis_obj.pubsub()
     pubsub.subscribe(channel_name)

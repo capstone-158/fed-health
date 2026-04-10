@@ -7,3 +7,5 @@ __py*
 data/
 *md
 .DS_Store
+*.pdf
+data*
