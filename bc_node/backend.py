@@ -217,7 +217,7 @@ def recv_model_and_hash():
         logger.error(f"Failed to start model receiver: {e}")
 
 
-# TODO: fix this api later
+# TODO: use asyncio.create_task() for scalability, look into scalability
 @app.post("/submit_local_model")
 async def submit_local_model(req: Request):
     # TODO: DONT STORE THE MODEL, FORWARD CHUNKS AS THEY COME

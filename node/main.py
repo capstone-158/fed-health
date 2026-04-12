@@ -17,7 +17,7 @@ from shared.config import (
 from shared.commons import create_socket, get_logger, get_data_path
 import uuid
 import httpx
-from training.ml_utils import load_global_weights
+from training.ml_utils import load_global_weights, client_update
 
 # TODO: fix the setter functions
 
@@ -168,6 +168,7 @@ headers = {
 """
 
 
+# this function is bs
 def upload_model_sync(model_path, metadata=None):
     """
     Synchronous wrapper for upload_model_to_blockchain.
@@ -227,8 +228,9 @@ def load_dataset():
 
 def handle_training(epoch_num, round_num, node_state):
     load_dataset()
-    load_global_weights() 
+
+    # call the api to get global weights from the hospital
 
     # call the training function, pass the node_state to that function and set state in that function
+    # client_update()
     node_state.set_training(epoch_num, round_num)
-

@@ -19,6 +19,9 @@ REPEAT FOR T ROUNDS
 
 # TODO: use the keys and implement tamperproof append
 
+from shared.models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
+from shared.state_manager import get_hospital_current_round
+from shared.config import NUM_CLASSES
 from fastapi import FastAPI, Request, HTTPException, Header
 import httpx
 import json
@@ -32,6 +35,10 @@ pub_pem = None
 
 logger = get_logger()
 app = FastAPI()
+
+WEIGHTS_DIR = "weights"
+os.makedirs(WEIGHTS_DIR, exist_ok=True)
+GLOBAL_WEIGHTS_PATH = os.path.join(WEIGHTS_DIR, "global_weights.pt")
 
 def get_latest_model():
     hospital_id = os.getenv("H_ID", "0")
@@ -100,3 +107,28 @@ async def get_public_key():
     }
 
 # TODO: write an api for performing fedavg. api called by the orchestrator.
+
+def get_model():
+    model_type = os.getenv("model_type")
+    if model_type == "resnet":
+        return AdaptedResNet18(NUM_CLASSES)
+    elif model_type == "alexnet":
+        return AdaptedAlexNet(NUM_CLASSES)
+    elif model_type == "net":
+        return ImprovedNet(NUM_CLASSES)
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
+
+
+# now this can be changed to f.read()
+@app.get("/get_global_weights")
+def load_global_weights():
+    round_num = get_hospital_current_round()
+
+    if round_num == 0:
+        model = get_model()
+        return model.state_dict()
+    else:
+        if not os.path.exists(GLOBAL_WEIGHTS_PATH):
+            raise FileNotFoundError(f"{GLOBAL_WEIGHTS_PATH} not found")
+        return torch.load(GLOBAL_WEIGHTS_PATH, map_location="cpu")

@@ -6,19 +6,17 @@ import itertools
 from torch.utils.data import TensorDataset, DataLoader, random_split
 import sys
 import os
-from .models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
+from shared.models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
 from shared.state_manager import get_hospital_current_round
 from shared.config import BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_CLASSES
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-WEIGHTS_DIR = "weights"
-os.makedirs(WEIGHTS_DIR, exist_ok=True)
-GLOBAL_WEIGHTS_PATH = os.path.join(WEIGHTS_DIR, "global_weights.pt")
-
 from torchvision import transforms
 from medmnist import PathMNIST
 
+# TODO: get mounted data and transform the subset of data
+# node, might be useless now
 def get_colon_data():
     transform = transforms.Compose([
         transforms.Resize((100, 100), antialias=True),
@@ -36,6 +34,8 @@ def get_colon_data():
     return train_dataset, val_dataset, test_dataset
 
 #data splitting according to the hierarchical structure of hospitals and clients
+'''
+# no offense but this is useless now
 def split_training_data(train_dataset, num_hospitals=3, clients_per_hospital=3):
     
     #level 1: Spliting into Hospitals
@@ -66,8 +66,9 @@ def split_training_data(train_dataset, num_hospitals=3, clients_per_hospital=3):
         all_hospital_clients.append(client_datasets)
         
     return all_hospital_clients
+'''
 
-
+# ask anagha
 def get_best_ensemble_weights(models, val_loader, device):
     #Grid search to find the best weights (acc to algo5 of paper)
     print("Starting Grid Search for Best Ensemble Weights...")
@@ -147,6 +148,7 @@ def get_best_ensemble_weights(models, val_loader, device):
     
     return best_alpha
 
+# ask anagha
 def evaluate_ensemble(models, weights, test_loader, device):
     #uses the best weights found to test on the final TEST set
     print(f"\nRunning Final Ensemble Test with Weights {weights}...")
@@ -175,6 +177,7 @@ def evaluate_ensemble(models, weights, test_loader, device):
     acc = 100 * correct / total
     return acc
 
+# local function in h_node
 def perform_fedavg(client_updates):
     """
     client_updates: LIST of tuples as follows
@@ -207,7 +210,11 @@ def perform_fedavg(client_updates):
     return avg_state_dict #global model weights after averaging
 
 
-def get_model(model_type):
+'''
+remove once everything's working
+
+def get_model():
+    model_type = os.getenv("model_type")
     if model_type == "resnet":
         return AdaptedResNet18(NUM_CLASSES)
     elif model_type == "alexnet":
@@ -227,7 +234,9 @@ def load_global_weights(model_type):
         if not os.path.exists(GLOBAL_WEIGHTS_PATH):
             raise FileNotFoundError(f"{GLOBAL_WEIGHTS_PATH} not found")
         return torch.load(GLOBAL_WEIGHTS_PATH, map_location="cpu")
+'''
 
+# local function for node. this thing just trains
 def client_update(global_weights, model_type, client_dataset):
     model = get_model(model_type).to(DEVICE)
     model.load_state_dict(global_weights)

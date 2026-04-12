@@ -42,6 +42,6 @@ def verify_certificate(certificate, public_key_pem):
 
 def get_data_path():
     NODE_ID = os.getenv("NODE_ID")
-    num = str(int(NODE_ID) % 2)
+    num = str((int(NODE_ID) % 2) + 1)
 
-    return f"/app/shared/datasets/pathmnist_{num}"
+    return f"/app/shared/datasets/pathmnist_split_{num}.pt"

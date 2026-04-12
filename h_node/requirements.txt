@@ -6,4 +6,4 @@ pandas
 pydantic
 redis
 uvicorn
-# torch
+torch

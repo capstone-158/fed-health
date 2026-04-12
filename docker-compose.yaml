@@ -77,6 +77,7 @@ services:
       - redis_h0
     environment:
       H_ID: 0
+      model_type: alexnet
       H_NODE_NAME: hospital_0
       REDIS_HOST: redis_h0
       nodes: "node_0,node_1"
@@ -94,6 +95,7 @@ services:
       - ./h_node/cached:/app/cached
     environment:
       H_ID: 1
+      model_type: resnet
       H_NODE_NAME: hospital_1
       REDIS_HOST: redis_h1
       nodes: "node_2,node_3"
@@ -113,6 +115,7 @@ services:
       - ./h_node/cached:/app/cached
     environment:
       H_ID: 2
+      model_type: net
       H_NODE_NAME: hospital_2
       REDIS_HOST: redis_h2
       nodes: "node_4,node_5"
