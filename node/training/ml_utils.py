@@ -4,7 +4,7 @@ from medmnist import PathMNIST
 from torchvision import transforms
 import torch.nn.functional as F
 import itertools
-from torch.utils.data import TensorDataset, DataLoader, random_split
+from torch.utils.data import TensorDataset, DataLoader, random_split, Dataset
 import sys
 import os
 from shared.models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
@@ -35,40 +35,6 @@ def get_colon_data():
 
     return train_dataset, val_dataset, test_dataset
 
-#data splitting according to the hierarchical structure of hospitals and clients
-'''
-# no offense but this is useless now
-def split_training_data(train_dataset, num_hospitals=3, clients_per_hospital=3):
-    
-    #level 1: Spliting into Hospitals
-    total_len = len(train_dataset)
-    hospital_size = total_len // num_hospitals
-    hospital_lengths = [hospital_size] * num_hospitals
-    hospital_lengths[-1] += total_len - sum(hospital_lengths) #adds remainder to the last hospital if total_len is not perfectly divisible
-    
-    hospital_datasets = random_split(
-        train_dataset, 
-        hospital_lengths, 
-        generator=torch.Generator().manual_seed(42)
-    )
-    
-    all_hospital_clients = []
-
-    # Level 2: Splitting Hospital Data into Clients
-    for hospital_subset in hospital_datasets:
-        client_size = len(hospital_subset) // clients_per_hospital
-        client_lengths = [client_size] * clients_per_hospital
-        client_lengths[-1] += len(hospital_subset) - sum(client_lengths)
-        
-        client_datasets = random_split(
-            hospital_subset, 
-            client_lengths,
-            generator=torch.Generator().manual_seed(42)
-        )
-        all_hospital_clients.append(client_datasets)
-        
-    return all_hospital_clients
-'''
 
 # ask anagha
 def get_best_ensemble_weights(models, val_loader, device):
@@ -237,16 +203,29 @@ def load_global_weights(model_type):
             raise FileNotFoundError(f"{GLOBAL_WEIGHTS_PATH} not found")
         return torch.load(GLOBAL_WEIGHTS_PATH, map_location="cpu")
 '''
+class NodeDataset(Dataset):
+    def __init__(self, data_path):
+        data = torch.load(data_path, map_location="cpu")
+        self.images = data["images"]
+        self.labels = data["labels"]
 
-# local function for node. this thing just trains
-def client_update(data_path): 
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        return self.images[idx], self.labels[idx]
+
+
+def client_update(data_path, global_weights_path):
     endpoint = "/get_model_type"
-    res = requests.get(HOSPITAL_URL+endpoint)
-    model_type = res.get("model")
+    res = requests.get(HOSPITAL_URL + endpoint)
+    res.raise_for_status()
+    model_type = res.json().get("model")
 
     model = get_model(model_type).to(DEVICE)
-    model.load_state_dict(torch.load(data_path))
+    model.load_state_dict(torch.load(global_weights_path, map_location=DEVICE))
 
+    client_dataset = NodeDataset(data_path)
     train_loader = DataLoader(client_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
     model.train()
@@ -258,7 +237,7 @@ def client_update(data_path):
 
         for i, (x, y) in enumerate(train_loader):
             x = x.to(DEVICE)
-            y = y.squeeze().long().to(DEVICE)
+            y = y.view(-1).long().to(DEVICE)
 
             optimizer.zero_grad()
             outputs = model(x)
@@ -267,17 +246,16 @@ def client_update(data_path):
             optimizer.step()
 
             total_loss += loss.item()
+
             if i % 100 == 0:
                 print(f"Epoch {epoch+1}, Batch {i}/{len(train_loader)}")
-        avg_loss = total_loss / len(train_loader)
 
+        avg_loss = total_loss / len(train_loader)
         train_acc = evaluate_model(model, client_dataset)
 
         print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {avg_loss:.4f} | Train Acc: {train_acc:.2f}%")
 
     return model.state_dict(), len(client_dataset)
-
- 
 
 def evaluate_model(model, dataset):
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
