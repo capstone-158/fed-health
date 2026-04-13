@@ -15,4 +15,4 @@ orb start
 docker compose up --build
 ```
 
-todo: check TODO markers
+todo: check TODO marker

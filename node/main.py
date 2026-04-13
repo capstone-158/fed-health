@@ -1,4 +1,5 @@
 from socket import *
+import requests
 import torch
 import os
 import json
@@ -9,20 +10,22 @@ import argparse
 from datetime import datetime
 from shared.config import (
     HOSPITAL_HEARTBEAT_PORT,
+    HOSPITAL_BACKEND_PORT,
     HEARTBEAT_INTERVAL,
     MODEL_CHUNK_SIZE,
     BLOCKCHAIN_LEADER_HOSTNAME,
+    HOSPITAL_URL,
     BLOCKCHAIN_PORTS,
 )
 from shared.commons import create_socket, get_logger, get_data_path
 import uuid
 import httpx
-from training.ml_utils import load_global_weights, client_update
+from training.ml_utils import client_update
 
 # TODO: fix the setter functions
-
 logger = get_logger()
 
+# TODO: call submit_model API in the flow
 
 class NodeState:
     def __init__(self):
@@ -226,11 +229,20 @@ if __name__ == "__main__":
 def load_dataset():
     return torch.load(get_data_path())
 
-def handle_training(epoch_num, round_num, node_state):
+async def download_weights(url):
+    client = httpx.AsyncClient()
+    async with client.stream('GET', url) as res:
+        res.raise_for_status()
+
+        with open("model.pt", "wb") as f:
+            async for chunk in res.aiter_bytes():
+                f.write(chunk)
+
+
+async def handle_training(epoch_num, round_num, node_state):
     load_dataset()
 
     # call the api to get global weights from the hospital
-
-    # call the training function, pass the node_state to that function and set state in that function
-    # client_update()
+    download_weights(HOSPITAL_URL)
+    client_update()
     node_state.set_training(epoch_num, round_num)

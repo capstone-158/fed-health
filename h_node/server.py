@@ -9,7 +9,7 @@ from shared import state_manager
 from shared.commons import *
 import os
 from cryptography.hazmat.primitives import serialization
-from shared.config import CLIENTS
+from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT
 import orchestrator
 
 logger = get_logger()
@@ -89,7 +89,7 @@ while True:
         uvicorn.run(
             "backend:app",
             host="0.0.0.0",
-            port=8000,
+            port=HOSPITAL_BACKEND_PORT,
             reload=False
         )
     except Exception as e:

@@ -1,4 +1,6 @@
 import hashlib
+from config import NUM_CLASSES
+from models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
 import os
 import logging
 from socket import *
@@ -45,3 +47,14 @@ def get_data_path():
     num = str((int(NODE_ID) % 2) + 1)
 
     return f"/app/shared/datasets/pathmnist_split_{num}.pt"
+
+def get_model():
+    model_type = os.getenv("model_type")
+    if model_type == "resnet":
+        return AdaptedResNet18(NUM_CLASSES)
+    elif model_type == "alexnet":
+        return AdaptedAlexNet(NUM_CLASSES)
+    elif model_type == "net":
+        return ImprovedNet(NUM_CLASSES)
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")

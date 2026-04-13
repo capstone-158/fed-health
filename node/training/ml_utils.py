@@ -1,4 +1,5 @@
 import torch
+import requests
 from medmnist import PathMNIST
 from torchvision import transforms
 import torch.nn.functional as F
@@ -8,7 +9,8 @@ import sys
 import os
 from shared.models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
 from shared.state_manager import get_hospital_current_round
-from shared.config import BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_CLASSES
+from shared.config import BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_CLASSES, HOSPITAL_URL
+from shared.commons import get_model
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -237,9 +239,13 @@ def load_global_weights(model_type):
 '''
 
 # local function for node. this thing just trains
-def client_update(global_weights, model_type, client_dataset):
+def client_update(data_path): 
+    endpoint = "/get_model_type"
+    res = requests.get(HOSPITAL_URL+endpoint)
+    model_type = res.get("model")
+
     model = get_model(model_type).to(DEVICE)
-    model.load_state_dict(global_weights)
+    model.load_state_dict(torch.load(data_path))
 
     train_loader = DataLoader(client_dataset, batch_size=BATCH_SIZE, shuffle=True)
 

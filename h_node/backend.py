@@ -19,10 +19,12 @@ REPEAT FOR T ROUNDS
 
 # TODO: use the keys and implement tamperproof append
 
+import torch
 from shared.models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
 from shared.state_manager import get_hospital_current_round
 from shared.config import NUM_CLASSES
 from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi.responses import StreamingResponse
 import httpx
 import json
 import os
@@ -39,6 +41,8 @@ app = FastAPI()
 WEIGHTS_DIR = "weights"
 os.makedirs(WEIGHTS_DIR, exist_ok=True)
 GLOBAL_WEIGHTS_PATH = os.path.join(WEIGHTS_DIR, "global_weights.pt")
+
+CHUNK_SIZE = 4*1024*1024
 
 def get_latest_model():
     hospital_id = os.getenv("H_ID", "0")
@@ -108,16 +112,11 @@ async def get_public_key():
 
 # TODO: write an api for performing fedavg. api called by the orchestrator.
 
-def get_model():
-    model_type = os.getenv("model_type")
-    if model_type == "resnet":
-        return AdaptedResNet18(NUM_CLASSES)
-    elif model_type == "alexnet":
-        return AdaptedAlexNet(NUM_CLASSES)
-    elif model_type == "net":
-        return ImprovedNet(NUM_CLASSES)
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+
+def stream(path):
+    with open(path, "rb") as f:
+        while chunk := f.read(CHUNK_SIZE):
+            yield chunk
 
 
 # now this can be changed to f.read()
@@ -127,8 +126,19 @@ def load_global_weights():
 
     if round_num == 0:
         model = get_model()
-        return model.state_dict()
+        torch.save(model.state_dict(), GLOBAL_WEIGHTS_PATH)
+
     else:
         if not os.path.exists(GLOBAL_WEIGHTS_PATH):
             raise FileNotFoundError(f"{GLOBAL_WEIGHTS_PATH} not found")
-        return torch.load(GLOBAL_WEIGHTS_PATH, map_location="cpu")
+        torch.load(GLOBAL_WEIGHTS_PATH, map_location="cpu")
+
+    return StreamingResponse(stream(GLOBAL_WEIGHTS_PATH), media_type="application/octet-stream")
+
+
+@app.get("get_model_type")
+def get_model_type():
+    return {
+        "model": os.getenv("model_type"),
+        "h_id": os.getenv("H_NODE_NAME")
+    }

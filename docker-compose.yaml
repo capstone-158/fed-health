@@ -129,7 +129,8 @@ services:
     volumes:
       - ./node:/app
       - ./shared:/app/shared:ro
-      - ./other/models:/app/models:ro
+      - ./other/models:/app/models:ro   # this can be removed once everything is working
+      - ./data/node_0.pt:/app/data.pt
     environment:
       NODE_ID: 0
       H_ID: 0
@@ -144,6 +145,7 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
+      - ./data/node_1.pt:/app/data.pt
     environment:
       NODE_ID: 1
       H_ID: 0
@@ -158,6 +160,7 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
+      - ./data/node_2.pt:/app/data.pt
     environment:
       NODE_ID: 2
       H_ID: 1
@@ -172,6 +175,7 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
+      - ./data/node_3.pt:/app/data.pt
     environment:
       NODE_ID: 3
       H_ID: 1
@@ -186,6 +190,7 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
+      - ./data/node_4.pt:/app/data.pt
     environment:
       NODE_ID: 4
       H_ID: 2
@@ -200,6 +205,7 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       - ./other/models:/app/models:ro
+      - ./data/node_5.pt:/app/data.pt
     environment:
       NODE_ID: 5
       H_ID: 2

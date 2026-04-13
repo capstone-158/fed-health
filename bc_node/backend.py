@@ -164,8 +164,6 @@ def send_to_node(node, info, chunk_queue):
         return None
 
 
-
-# THIS FUNCTION IS FOR THE RECEIVER SIDE
 def recv_model_and_hash():
     try:
         sock = create_socket("0.0.0.0", BLOCKCHAIN_PORTS["broadcast_port"])
@@ -220,7 +218,6 @@ def recv_model_and_hash():
 # TODO: use asyncio.create_task() for scalability, look into scalability
 @app.post("/submit_local_model")
 async def submit_local_model(req: Request):
-    # TODO: DONT STORE THE MODEL, FORWARD CHUNKS AS THEY COME
     metadata = json.loads(req.headers.get("metadata"))
     node_id = metadata.get("node_id")
     model_id = metadata.get("model_id")
