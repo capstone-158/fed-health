@@ -235,6 +235,10 @@ def client_update(data_path, weights_path):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
+    metrics = {
+        "loss": [],
+        "accuracy": []
+    }
 
     for epoch in range(EPOCHS):
         logger.info(f"Training loop: Node {os.getenv('NODE_ID')}, currently on epoch {epoch}")
@@ -258,10 +262,14 @@ def client_update(data_path, weights_path):
         avg_loss = total_loss / len(train_loader)
         train_acc = evaluate_model(model, client_dataset)
 
+        metrics["loss"].append(avg_loss)
+        metrics["accuracy"].append(train_acc)
+
     logger.info("Training loop: Training complete")
     torch.save(model.state_dict(), "model.pt")
     logger.info("Model saved to model.pt")
-    return model.state_dict(), len(client_dataset)
+
+    return metrics
 
 def evaluate_model(model, dataset):
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
