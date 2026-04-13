@@ -1,4 +1,5 @@
 import torch
+import logging
 import requests
 from medmnist import PathMNIST
 from torchvision import transforms
@@ -10,8 +11,9 @@ import os
 from shared.models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
 from shared.state_manager import get_hospital_current_round
 from shared.config import BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_CLASSES, HOSPITAL_URL
-from shared.commons import get_model
+from shared.commons import get_model, get_logger
 
+logger = get_logger()
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 from torchvision import transforms
@@ -216,23 +218,26 @@ class NodeDataset(Dataset):
         return self.images[idx], self.labels[idx]
 
 
-def client_update(data_path, global_weights_path):
+def client_update(data_path, weights_path):
     endpoint = "/get_model_type"
     res = requests.get(HOSPITAL_URL + endpoint)
     res.raise_for_status()
     model_type = res.json().get("model")
 
     model = get_model(model_type).to(DEVICE)
-    model.load_state_dict(torch.load(global_weights_path, map_location=DEVICE))
+    model.load_state_dict(torch.load(weights_path, map_location=DEVICE))
 
     client_dataset = NodeDataset(data_path)
     train_loader = DataLoader(client_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    logger.info("Training loop: Data loaded")
 
+    logger.info("Training loop: Starting model training now")
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion = torch.nn.CrossEntropyLoss()
 
     for epoch in range(EPOCHS):
+        logger.info(f"Training loop: Node {os.getenv('NODE_ID')}, currently on epoch {epoch}")
         total_loss = 0.0
 
         for i, (x, y) in enumerate(train_loader):
@@ -253,8 +258,9 @@ def client_update(data_path, global_weights_path):
         avg_loss = total_loss / len(train_loader)
         train_acc = evaluate_model(model, client_dataset)
 
-        print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {avg_loss:.4f} | Train Acc: {train_acc:.2f}%")
-
+    logger.info("Training loop: Training complete")
+    torch.save(model.state_dict(), "model.pt")
+    logger.info("Model saved to model.pt")
     return model.state_dict(), len(client_dataset)
 
 def evaluate_model(model, dataset):

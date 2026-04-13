@@ -29,7 +29,7 @@ import httpx
 import json
 import os
 from shared.config import BLOCKCHAIN_LEADER_HOSTNAME, BLOCKCHAIN_PORTS, NODE_REGISTRY
-from shared.commons import get_logger
+from shared.commons import get_logger, get_model
 from crypto import *
 
 priv_key = None
@@ -122,21 +122,26 @@ def stream(path):
 # now this can be changed to f.read()
 @app.get("/get_global_weights")
 def load_global_weights():
-    round_num = get_hospital_current_round()
+    hospital_id = os.getenv("H_ID", "0")
+    round_num = get_hospital_current_round(hospital_id)
+    logger.info(f"!!!!!!!!!!ROUND NUMBER IS {round_num}!!!!!!!!!!!")
 
     if round_num == 0:
         model = get_model()
+        logger.info(f"!!!!!!!!!!!GOT MODEL {model}!!!!!!!!!!!!")
         torch.save(model.state_dict(), GLOBAL_WEIGHTS_PATH)
+        logger.info(f"!!!!!!!!!!!!MODEL SAVED TO {GLOBAL_WEIGHTS_PATH}!!!!!!!!!!!!!!!")
 
     else:
         if not os.path.exists(GLOBAL_WEIGHTS_PATH):
             raise FileNotFoundError(f"{GLOBAL_WEIGHTS_PATH} not found")
         torch.load(GLOBAL_WEIGHTS_PATH, map_location="cpu")
 
+    logger.info("NOW GONNA START STREAMING")
     return StreamingResponse(stream(GLOBAL_WEIGHTS_PATH), media_type="application/octet-stream")
 
 
-@app.get("get_model_type")
+@app.get("/get_model_type")
 def get_model_type():
     return {
         "model": os.getenv("model_type"),

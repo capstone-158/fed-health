@@ -1,6 +1,6 @@
 import hashlib
-from config import NUM_CLASSES
-from models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
+from .config import NUM_CLASSES
+from .models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet, TinyCNN
 import os
 import logging
 from socket import *
@@ -42,19 +42,17 @@ def verify_certificate(certificate, public_key_pem):
 
     return True
 
-def get_data_path():
-    NODE_ID = os.getenv("NODE_ID")
-    num = str((int(NODE_ID) % 2) + 1)
+def get_model(model_type=None):
+    if model_type is None:
+        model_type = os.getenv("model_type")
 
-    return f"/app/shared/datasets/pathmnist_split_{num}.pt"
-
-def get_model():
-    model_type = os.getenv("model_type")
     if model_type == "resnet":
         return AdaptedResNet18(NUM_CLASSES)
     elif model_type == "alexnet":
         return AdaptedAlexNet(NUM_CLASSES)
     elif model_type == "net":
         return ImprovedNet(NUM_CLASSES)
+    elif model_type == "test":
+        return TinyCNN()
     else:
         raise ValueError(f"Unknown model type: {model_type}")

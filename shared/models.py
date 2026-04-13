@@ -103,3 +103,17 @@ class AdaptedResNet18(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+
+# test model, good for fast simulation
+class TinyCNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(3, 8, 3),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(8 * 30 * 30, 2)
+        )
+
+    def forward(self, x):
+        return self.net(x)

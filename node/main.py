@@ -1,4 +1,5 @@
 from socket import *
+import uuid
 import requests
 import torch
 import os
@@ -17,7 +18,7 @@ from shared.config import (
     HOSPITAL_URL,
     BLOCKCHAIN_PORTS,
 )
-from shared.commons import create_socket, get_logger, get_data_path
+from shared.commons import create_socket, get_logger
 import uuid
 import httpx
 from training.ml_utils import client_update
@@ -26,6 +27,9 @@ from training.ml_utils import client_update
 logger = get_logger()
 
 # TODO: call submit_model API in the flow
+
+DATA_PATH="/app/shared/tiny_dataset.pt"
+WEIGHTS_PATH="./weights.pt"
 
 class NodeState:
     def __init__(self):
@@ -225,24 +229,45 @@ if __name__ == "__main__":
         logger.info("Starting heartbeat loop...")
         heartbeat_loop()
 
-
-def load_dataset():
-    return torch.load(get_data_path())
-
 async def download_weights(url):
     client = httpx.AsyncClient()
     async with client.stream('GET', url) as res:
         res.raise_for_status()
 
-        with open("model.pt", "wb") as f:
+        with open("weights.pt", "wb") as f:
             async for chunk in res.aiter_bytes():
                 f.write(chunk)
 
 
 async def handle_training(epoch_num, round_num, node_state):
-    load_dataset()
-
+    '''
+        currently implemented:
+        - loading the dataset
+        - getting global weights from the hospital
+        - training the global model on the dataset
+        - submitting the model to the blockchain for verification
+        
+        next up:
+        - where do u save the model after consensus
+        - how does the hospital get the model
+        - send "done" signal in redis pub/sub between node and hospital
+    '''
     # call the api to get global weights from the hospital
-    download_weights(HOSPITAL_URL)
-    client_update()
+    endpoint = "/get_global_weights"
+    await download_weights(HOSPITAL_URL + endpoint)
+    logger.info("Training loop: Downloaded weights")
+
+    logger.info("Training loop: Starting training now")
     node_state.set_training(epoch_num, round_num)
+    client_update(DATA_PATH, WEIGHTS_PATH)
+    node_state.set_idle()
+
+    # call the submit model api
+    # logger.info("Sending model to blockchain for verification")
+    # metadata = {
+    #     "node_id": os.getenv("NODE_ID"),
+    #     "model_id": uuid.uuid4(),
+    #     "hospital_id": os.getenv("H_ID"),
+    #     "metrics": "hi"
+    # }
+    # requests.post()

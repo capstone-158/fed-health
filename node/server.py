@@ -11,12 +11,8 @@ from shared import state_manager
 from main import handle_training, node_state
 import asyncio
 from training.ml_utils import client_update
-from shared.commons import get_data_path
-
-DATA_PATH = get_data_path()
 
 logger = get_logger()
-logger.info(f'DATA PATH IS: {DATA_PATH}!!!!!!!!!!!!!!!!!!!!!')
 logger.info(type(os.getenv("NODE_ID")))
 
 rounds_completed = 0
@@ -56,7 +52,7 @@ def listen(channel_name, redis_obj):
                             - uploads model with metrics to the blockchain
                             - calls the barrier_checkin() function saying that its done.
                         '''
-                        handle_training(epoch_num=command.get("epochs"), round_num=command.get("round_id"), node_state=node_state)
+                        asyncio.run(handle_training(epoch_num=command.get("epochs"), round_num=command.get("round_id"), node_state=node_state))
 
                     else:
                         logger.info(f"Node {node_id} not selected for this round")
