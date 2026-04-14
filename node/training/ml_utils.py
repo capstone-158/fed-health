@@ -264,6 +264,7 @@ def client_update(data_path, weights_path):
 
         metrics["loss"].append(avg_loss)
         metrics["accuracy"].append(train_acc)
+    metrics["dataset_len"] = len(client_dataset)
 
     logger.info("Training loop: Training complete")
     torch.save(model.state_dict(), "model.pt")

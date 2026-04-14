@@ -17,6 +17,7 @@ from shared.config import (
     BLOCKCHAIN_LEADER_HOSTNAME,
     HOSPITAL_URL,
     BLOCKCHAIN_PORTS,
+    BLOCKCHAIN_BACKEND_URL
 )
 from shared.commons import create_socket, get_logger
 import uuid
@@ -87,7 +88,7 @@ def heartbeat_loop():
         time.sleep(HEARTBEAT_INTERVAL)
 
 
-async def upload_model_to_blockchain(model_path, metadata):
+async def upload_model_to_blockchain(model_path, model_metrics):
     """
     Edge server uploads the trained model DIRECTLY to the blockchain network.
     Each bc_node:
@@ -101,11 +102,14 @@ async def upload_model_to_blockchain(model_path, metadata):
     node_id = os.getenv("NODE_ID", "unknown")
     hospital_id = os.getenv("H_ID", "0")
 
+    metadata = {}
+
     # Add required fields to metadata
     metadata["node_id"] = node_id
     metadata["hospital_id"] = f"hospital_{hospital_id}"
     metadata["model_id"] = str(uuid.uuid4())
     metadata["timestamp"] = time.time()
+    metadata["metrics"] = model_metrics
 
     bc_leader_url = f"http://{BLOCKCHAIN_LEADER_HOSTNAME}:{BLOCKCHAIN_PORTS['backend_port']}/submit_local_model"
 
@@ -259,15 +263,12 @@ async def handle_training(epoch_num, round_num, node_state):
 
     logger.info("Training loop: Starting training now")
     node_state.set_training(epoch_num, round_num)
-    client_update(DATA_PATH, WEIGHTS_PATH)
+    metrics = client_update(DATA_PATH, WEIGHTS_PATH)
     node_state.set_idle()
 
     # call the submit model api
-    # logger.info("Sending model to blockchain for verification")
-    # metadata = {
-    #     "node_id": os.getenv("NODE_ID"),
-    #     "model_id": uuid.uuid4(),
-    #     "hospital_id": os.getenv("H_ID"),
-    #     "metrics": "hi"
-    # }
-    # requests.post()
+    logger.info("Sending model to blockchain for verification")
+    model_path = "./model.pt"
+    res = await upload_model_to_blockchain(model_path, metrics)
+
+    logger.info(f"Response received from blockchain: {res}")
