@@ -20,6 +20,7 @@ from shared.config import (
     BLOCKCHAIN_BACKEND_URL
 )
 from shared.commons import create_socket, get_logger
+from shared.state_manager import get_connection
 import uuid
 import httpx
 from training.ml_utils import client_update
@@ -242,6 +243,18 @@ async def download_weights(url):
             async for chunk in res.aiter_bytes():
                 f.write(chunk)
 
+def signal_round_complete(round_id, node_id, hospital_id):
+    channel = f"fl_done"
+
+    r = get_connection()
+
+    r.publish(channel, json.dumps({
+        "round_id": round_id,
+        "node_id": node_id,
+        "hospital_id": hospital_id
+    }))
+
+    logger.info("Sent barrier checking to hospital")
 
 async def handle_training(epoch_num, round_num, node_state):
     '''
@@ -256,19 +269,23 @@ async def handle_training(epoch_num, round_num, node_state):
         - how does the hospital get the model
         - send "done" signal in redis pub/sub between node and hospital
     '''
-    # call the api to get global weights from the hospital
+    
+    # loading the global model
     endpoint = "/get_global_weights"
     await download_weights(HOSPITAL_URL + endpoint)
     logger.info("Training loop: Downloaded weights")
 
+    # training model
     logger.info("Training loop: Starting training now")
     node_state.set_training(epoch_num, round_num)
     metrics = client_update(DATA_PATH, WEIGHTS_PATH)
     node_state.set_idle()
 
-    # call the submit model api
+    # submitting model to blockchain
     logger.info("Sending model to blockchain for verification")
     model_path = "./model.pt"
     res = await upload_model_to_blockchain(model_path, metrics)
-
     logger.info(f"Response received from blockchain: {res}")
+
+    # barrier checkin
+    signal_round_complete(round_num, os.getenv("NODE_ID"), os.getenv("H_ID"))

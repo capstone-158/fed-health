@@ -10,7 +10,7 @@ def get_connection():
 
 r = get_connection()
 
-# global rounds tate
+# global round state
 def set_current_round(round_id):
     r.set("fl:current_round", round_id)
 

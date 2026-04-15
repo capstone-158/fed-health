@@ -9,8 +9,9 @@ from shared import state_manager
 from shared.commons import *
 import os
 from cryptography.hazmat.primitives import serialization
-from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT
+from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT, HEARTBEAT_INTERVAL
 import orchestrator
+import backend
 
 logger = get_logger()
 
@@ -18,6 +19,7 @@ os.makedirs("./secrets", exist_ok=True)
 
 private_key_path = "./secrets/private_key.pem"
 public_key_path = "./secrets/public_key.pem"
+
 
 if os.path.exists(private_key_path) and os.path.exists(public_key_path):
     with open(private_key_path, "rb") as f:
@@ -35,18 +37,46 @@ else:
     with open(public_key_path, "wb") as f:
         f.write(pub_pem)
     
-rounds_completed = 0
+backend.priv_key = priv_key
+backend.pub_pem = pub_pem
 
-def precheck(default_mode_ref="global_round_0.pth"):
+def precheck():
     redis_conn = state_manager.get_connection()
     hospital_id = os.getenv("H_ID")
     current_round = state_manager.get_hospital_current_round(hospital_id)
     return current_round
 
+completed_nodes = set()
+lock = threading.Lock()
+rounds_completed = 0
 
-import backend
-backend.priv_key = priv_key
-backend.pub_pem = pub_pem
+def listen_done():
+    r = state_manager.get_connection()
+    pubsub = r.pubsub()
+    pubsub.subscribe("fl_done")
+
+    logger.info("Listening for done events...")
+
+    for msg in pubsub.listen():
+        if msg["type"] != "message":
+            continue
+
+        try:
+            data = json.loads(msg["data"])
+            round_id = data["round_id"]
+            node_id = data["node_id"]
+
+            current_round = state_manager.get_hospital_current_round(data["hospital_id"])
+
+            if round_id != current_round:
+                continue
+
+            with lock:
+                completed_nodes.add(node_id)
+                logger.info(f"[ROUND {round_id}] Node {node_id} done. Completed nodes: {completed_nodes}")
+        except Exception as e:
+            logger.info(f"Some error in listen_done: {e}")
+
 
 logger.info("Starting hospital server...")
 
@@ -57,7 +87,9 @@ def pub(round_id, node_ids, epochs=20, model_ref=None):
     r = state_manager.get_connection()
 
     hospital_id = os.getenv("H_ID")
-    
+    state_manager.set_hospital_current_round(hospital_id, round_id)
+    state_manager.set_round_state(round_id, "started") 
+
     msg = {
         "type": "start training",
         "hospital_id": hospital_id,
@@ -74,15 +106,74 @@ def pub(round_id, node_ids, epochs=20, model_ref=None):
 
 state_manager.get_connection()
 
-# the function call below causes a problem because it runs the function before any heartbeats are sent
-time.sleep(10)
-while True:
-    k_nodes = orchestrator.select_k_nodes()
-    if k_nodes:
+def wait_for_round(round_id, hospital_id, timeout=600):
+    start = time.time()
+
+    while time.time() - start < timeout:
+        with lock:
+            if len(completed_nodes) >= CLIENTS:
+                logger.info(f"Round {round_id} complete.")
+                return True
+
+        count = state_manager.barrier_count(round_id)
+        if count >= CLIENTS:
+            logger.info(f"Round {round_id} complete.")
+            return True
+        
+        time.sleep(2)
+
+    return False
+
+def orchestration_loop():
+    hospital_id = os.getenv("H_ID")
+
+    round_id = state_manager.get_hospital_current_round(hospital_id)
+
+    time.sleep(HEARTBEAT_INTERVAL)
+
+    while True:
+        logger.info(f"Starting round {round_id}")
+
+        k_nodes = orchestrator.select_k_nodes()
+
+        if not k_nodes:
+            logger.warning("No live nodes available")
+            time.sleep(5)
+            continue
+
         if len(k_nodes) < CLIENTS:
-            logging.warning(f"Only {len(k_nodes)} available, need {CLIENTS}. Using all")
-        break
-res = pub(0, k_nodes, 0, "global_round_1.pth")
+            logger.warning(f"Only {len(k_nodes)} nodes available")
+
+        # reset local tracking
+        with lock:
+            completed_nodes.clear()
+
+# TODO: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!EVERYTHING CAN FAIL HERE DUE TO THE NAMING DIFFERENCE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+        pub(round_id, node_ids=k_nodes, epochs=20,model_ref=f"global_round_{round_id}.pt")
+
+        success = wait_for_round(round_id, hospital_id)
+
+        if success:
+            logger.info(f"Round {round_id} COMPLETE")
+
+            state_manager.set_round_state(round_id, "completed")
+
+            # TODO:
+            # - aggregate models
+            # - update global model
+
+            round_id += 1
+            state_manager.set_hospital_current_round(hospital_id, round_id)
+
+        else:
+            logger.error(f"Round {round_id} FAILED")
+            state_manager.set_round_state(round_id, "failed")
+
+listen_done_thread = threading.Thread(target=listen_done, daemon=True)
+listen_done_thread.start()
+
+orchestration_thread = threading.Thread(target=orchestration_loop, daemon=True)
+orchestration_thread.start()
 
 while True:
     try:
