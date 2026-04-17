@@ -32,8 +32,8 @@ logger = get_logger()
 
 DATA_PATH = "/app/shared/tiny_dataset.pt"
 NODE_ID_ENV = os.getenv("NODE_ID", "unknown")
-WEIGHTS_PATH = f"/app/weights_{NODE_ID_ENV}.pt"
-MODEL_PATH = f"/app/model_{NODE_ID_ENV}.pt"
+WEIGHTS_PATH = f"/app/global_weights/weights_{NODE_ID_ENV}.pt"
+MODEL_PATH = f"/app/models/model_{NODE_ID_ENV}.pt"
 
 class NodeState:
     def __init__(self):
