@@ -9,7 +9,7 @@ from shared import state_manager
 from shared.commons import *
 import os
 from cryptography.hazmat.primitives import serialization
-from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT, HEARTBEAT_INTERVAL
+from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT, HEARTBEAT_INTERVAL, ROUNDS
 import orchestrator
 import backend
 
@@ -50,6 +50,27 @@ completed_nodes = set()
 lock = threading.Lock()
 rounds_completed = 0
 
+'''
+TODO: bug fix
+Bug 1 — listen_done doesn't filter by this hospital's nodes (line 69-75):
+
+
+# current code — compares against the SENDER's hospital's round, not this h_node's
+current_round = state_manager.get_hospital_current_round(data["hospital_id"])
+if round_id != current_round:
+    continue
+with lock:
+    completed_nodes.add(node_id)
+All 3 h_nodes subscribe to fl_done. So h_node_0 receives done events from nodes 3, 4, 5 (hospitals 1 & 2) and counts them toward its own completed_nodes. 
+The round appears complete when it's not.
+
+fix:
+# In listen_done — only count nodes belonging to THIS hospital
+own_hospital_id = os.getenv("H_ID")
+current_round = state_manager.get_hospital_current_round(own_hospital_id)
+if round_id != current_round or data["hospital_id"] != own_hospital_id:
+    continue
+'''
 def listen_done():
     r = state_manager.get_connection()
     pubsub = r.pubsub()
@@ -132,6 +153,10 @@ def orchestration_loop():
     time.sleep(HEARTBEAT_INTERVAL)
 
     while True:
+        logger.info(f"WE ARE CURRENTLY ON ROUND {round_id}")
+        if round_id >= ROUNDS:
+            logger.info(f"All {ROUNDS} rounds complete. FL Process ending!")
+            break
         logger.info(f"Starting round {round_id}")
 
         k_nodes = orchestrator.select_k_nodes()
@@ -159,6 +184,8 @@ def orchestration_loop():
             state_manager.set_round_state(round_id, "completed")
 
             # TODO:
+            # - receive client models
+            # - validate model
             # - aggregate models
             # - update global model
 

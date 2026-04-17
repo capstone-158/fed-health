@@ -147,38 +147,6 @@ def evaluate_ensemble(models, weights, test_loader, device):
     acc = 100 * correct / total
     return acc
 
-# local function in h_node
-def perform_fedavg(client_updates):
-    """
-    client_updates: LIST of tuples as follows
-        [
-            (state_dict_1, num_samples_1),
-            (state_dict_2, num_samples_2),
-            ...
-        ]
-    """
-
-    if not client_updates:
-        raise ValueError("client_updates empty")
-
-    total_samples = sum(num_samples for _, num_samples in client_updates)
-
-    avg_state_dict = {}
-    first_state_dict = client_updates[0][0] #to know shape
-
-    for key in first_state_dict.keys():
-        avg_state_dict[key] = torch.zeros_like(first_state_dict[key]) #same shape filled with zeros
-
-    for state_dict, num_samples in client_updates:
-        weight = num_samples / total_samples #how much the client contributes
-
-        for key in state_dict.keys():
-            avg_state_dict[key] += state_dict[key] * weight 
-    
-    torch.save(avg_state_dict, GLOBAL_WEIGHTS_PATH)
-
-    return avg_state_dict #global model weights after averaging
-
 
 '''
 remove once everything's working
@@ -218,7 +186,7 @@ class NodeDataset(Dataset):
         return self.images[idx], self.labels[idx]
 
 
-def client_update(data_path, weights_path):
+def client_update(data_path, weights_path, model_path):
     endpoint = "/get_model_type"
     res = requests.get(HOSPITAL_URL + endpoint)
     res.raise_for_status()
@@ -267,8 +235,8 @@ def client_update(data_path, weights_path):
     metrics["dataset_len"] = len(client_dataset)
 
     logger.info("Training loop: Training complete")
-    torch.save(model.state_dict(), "model.pt")
-    logger.info("Model saved to model.pt")
+    torch.save(model.state_dict(), model_path)
+    logger.info(f"Model saved to {model_path}")
 
     return metrics
 

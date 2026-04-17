@@ -1,5 +1,6 @@
+import torch
 
-def perform_fedavg(client_updates):
+def perform_fedavg(client_updates, global_weights_path):
     """
     client_updates: LIST of tuples as follows
         [
@@ -26,6 +27,6 @@ def perform_fedavg(client_updates):
         for key in state_dict.keys():
             avg_state_dict[key] += state_dict[key] * weight 
     
-    torch.save(avg_state_dict, GLOBAL_WEIGHTS_PATH)
+    torch.save(avg_state_dict, global_weights_path)
 
     return avg_state_dict #global model weights after averaging

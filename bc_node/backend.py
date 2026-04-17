@@ -41,7 +41,8 @@ block_hash = SHA256(index + prev_hash + payload)
     bc_node to bc_node: communication happens through TCP sockets.
 '''
 
-from fastapi import FastAPI, Request, HTTPException
+import shutil
+from fastapi import FastAPI, Request
 import json
 import hashlib
 import os
@@ -53,7 +54,6 @@ import time
 from ping3 import ping
 import threading
 from ledger import ledgers, Block
-import httpx
 
 logger = get_logger()
 app = FastAPI()
@@ -129,7 +129,7 @@ def send_to_node(node, info, chunk_queue):
     try:
         sock = socket(AF_INET, SOCK_STREAM)
         sock.settimeout(60)
-        sock.connect((node, info["broadcast_port"]))  # Must be a tuple
+        sock.connect((node, info["broadcast_port"]))
 
         metadata = {
             "type": "model_broadcast",
@@ -137,7 +137,7 @@ def send_to_node(node, info, chunk_queue):
             "info": info
         }
         sock.sendall(json.dumps(metadata).encode())
-        
+
         ack = sock.recv(1024)
         if ack != b"OK":
             logger.error(f"Node {node} not ready: {ack}")
@@ -146,18 +146,16 @@ def send_to_node(node, info, chunk_queue):
 
         while True:
             chunk = chunk_queue.get()
-            if chunk == None:
+            if chunk is None:
                 break
             sock.sendall(chunk)
 
-        sock.sendall(b"EOF")
+        sock.sendall(b"eof")
 
         response_hash = sock.recv(1024).decode()
         logger.info(f"Received hash from {node}: {response_hash}")
-        
-        sock.close()
 
-        return response_hash
+        return response_hash, sock
 
     except Exception as e:
         logger.error(f"Error in sending chunk to node. Error: {e}")
@@ -170,7 +168,10 @@ def recv_model_and_hash():
         sock.listen()
         
         logger.info(f"Listening for model broadcasts on port {BLOCKCHAIN_PORTS['broadcast_port']}")
-        
+
+        os.makedirs("/app/client_models/stage", exist_ok=True)
+        os.makedirs("/app/client_models/commit", exist_ok=True)
+
         while True:
             client_sock, addr = sock.accept()
             
@@ -179,34 +180,73 @@ def recv_model_and_hash():
                     metadata_raw = client_sock.recv(4096).decode()
                     metadata = json.loads(metadata_raw)
                     
-                    logger.info(f"Received broadcast metadata from {addr}: {metadata}")
+                    logger.info(f"Received metadata from {addr}: {metadata}")
                     
                     if metadata.get("type") == "model_broadcast":
                         client_sock.sendall(b"OK")
-                        logger.info(f"Sent OK to {addr}, ready to receive model")
+                        logger.info(f"sent ok to {addr}, ready to receive model")
+
+                        hasher = hashlib.sha256()
+                        stage_path = f"/app/client_models/stage/model_{time.time()}.pt"
+
+                        with open(stage_path, "wb") as f:
+                            while True:
+                                chunk = client_sock.recv(MODEL_CHUNK_SIZE)
+                                if not chunk:
+                                    break
+                                
+                                if chunk.endswith(b"eof"):
+                                    if len(chunk) > 3:
+                                        hasher.update(chunk[:-3])
+                                    break
+                                
+                                hasher.update(chunk)
+                                f.write(chunk)
+                            
+                            model_hash = hasher.hexdigest()
+                            logger.info(f"received model from {addr}, hash: {model_hash}")
+                            logger.info(f"Model: {model_hash} STAGED")
+
+                            client_sock.sendall(model_hash.encode())
+                        
+                        final_path = f"/app/models/commit/{model_hash}.pt"
+                        # listen for commit signal then save the model to a final path
+                        signal = client_sock.recv(16).decode()
+                        if signal == "COMMIT":
+                            shutil.move(stage_path, final_path)
+                        else:
+                            os.remove(stage_path)
+                        
+                        logger.info(f"Model: {model_hash} COMMITTED")
+                    
+                    elif metadata.get("type") == "block_replication":
+                        block_dict = metadata.get("block")
+                        ledger_name = metadata.get("ledger_name")
+                        if ledger_name not in ledgers:
+                            logger.info("Invalid ledger")
+                            client_sock.sendall(b"ERROR")
+                            continue
+
+                        block = Block.from_dict(block_dict)
+                        ledger = ledgers[ledger_name]
+                        last_block = ledger.last_block()
+
+                        if block.prev_hash != last_block.block_hash:
+                            logger.info("Chain mismatch")
+                            client_sock.sendall(b"ERROR")
+                            continue
+
+                        with ledger.lock:
+                            ledger.chain.append(block)
+                            ledger._persist()
+
+                        client_sock.sendall(b"OK")
+                        logger.info(f"Replicated block {block.index} into {ledger_name}")
+
                     else:
                         client_sock.sendall(b"ERROR")
                         logger.error(f"Invalid metadata type from {addr}")
                         continue
-                    
-                    hasher = hashlib.sha256()
-                    
-                    while True:
-                        chunk = client_sock.recv(MODEL_CHUNK_SIZE)
-                        if not chunk:
-                            break
-                        
-                        if chunk.endswith(b"EOF"):
-                            if len(chunk) > 3:
-                                hasher.update(chunk[:-3])
-                            break
-                        
-                        hasher.update(chunk)
-                    
-                    model_hash = hasher.hexdigest()
-                    logger.info(f"Received model from {addr}, hash: {model_hash}")
-                    
-                    client_sock.sendall(model_hash.encode())
                     
                 except Exception as e:
                     logger.error(f"Error receiving model from {addr}: {e}")
@@ -216,6 +256,10 @@ def recv_model_and_hash():
 
 
 # TODO: use asyncio.create_task() for scalability, look into scalability
+
+'''
+TODO: need to save model hospital wise
+'''
 @app.post("/submit_local_model")
 async def submit_local_model(req: Request):
     metadata = json.loads(req.headers.get("metadata"))
@@ -224,10 +268,10 @@ async def submit_local_model(req: Request):
 
     logger.info(f"Model upload received from: {node_id}")
 
-
     node_queues = {}
     threads = []
     results = {}
+    sockets = {}
 
     bc_nodes = list(bc_nodes_registry.items())
 
@@ -237,16 +281,19 @@ async def submit_local_model(req: Request):
 
     this creates a mechanism which makes sure parallel, in order delivery to each node at its own pace.
     '''
-    
+
     def send_wrapper(node, info, q):
-        """Wrapper to capture return value from send_to_node"""
-        results[node] = send_to_node(node, info, q)
-    
+        result = send_to_node(node, info, q)
+        if result:
+            results[node], sockets[node] = result
+        else:
+            results[node] = None
+
     for node, info in bc_nodes:
         q = queue.Queue()
         node_queues[node] = q
 
-        t = threading.Thread(target=send_wrapper, args=(node, info, q))
+        t = threading.Thread(target=send_wrapper, args=(node, info, q), daemon=True)
         t.start()
         threads.append(t)
 
@@ -257,13 +304,13 @@ async def submit_local_model(req: Request):
 
         for q in node_queues.values():
             q.put(chunk)
-    
+
     for q in node_queues.values():
         # basically an EOF flag
         q.put(None)
 
     for t in threads:
-        t.join(timeout=30)  # 30 second timeout per thread
+        t.join(timeout=30)
 
     model_hash = hasher.hexdigest()
     logger.info(f"Model hash computed: {model_hash}")
@@ -282,6 +329,15 @@ async def submit_local_model(req: Request):
     # Get hospital_id from metadata (sent by h_node)
     hospital_id = metadata.get("hospital_id", "hospital_0")
     
+    signal = b"COMMIT" if all_same else b"REJECT"
+    for node, sock in sockets.items():
+        try:
+            sock.sendall(signal)
+        except Exception as e:
+            logger.error(f"Error in 2 phase commit: {e}")
+        finally:
+            sock.close()
+
     if all_same:
         payload = {
             "hospital_id": hospital_id,
@@ -293,32 +349,22 @@ async def submit_local_model(req: Request):
         }
 
         logger.info(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!CONSENSUS MADE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        
-        # Append to blockchain
+
         ledger_name = hospital_id if hospital_id in ledgers else "hospital_0"
         logger.info(f"ledgers: {ledgers}, ledger_name: {ledger_name}")
         block = ledgers[ledger_name].append_block(payload)
-        logger.info(f"✓ Block {block.index} added to {ledger_name} blockchain")
+        logger.info(f"Block {block.index} added to {ledger_name} blockchain")
 
         leader_name = os.getenv("BC_NODE_NAME")
-        for node, info in bc_nodes_registry.items():
+        for node in bc_nodes_registry:
             if node == leader_name:
                 continue
+            threading.Thread(
+                target=replicate_block,
+                args=(node, ledger_name, block.to_dict()),
+                daemon=True
+            ).start()
 
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    await client.post(
-                        f"http://{node}:{BLOCKCHAIN_PORTS['backend_port']}/replicate_block",
-                        json={
-                            "ledger_name": ledger_name,
-                            "block": block.to_dict()
-                        }
-                    )
-                logger.info(f"Replicated block to {node}")
-            except Exception as e:
-                logger.error(f"Failed to replicate block to {node}: {e}")
-
-        
         return {
             "status": "success",
             "model_hash": model_hash,
@@ -331,7 +377,7 @@ async def submit_local_model(req: Request):
             }
         }
     else:
-        logger.error(f"✗ Consensus failed! Hashes don't match.")
+        logger.error(f"Consensus failed! Hashes don't match.")
         return {
             "status": "consensus_failed",
             "model_hash": model_hash,
@@ -342,24 +388,24 @@ async def submit_local_model(req: Request):
                 "hash_set": list(HM)
             }
         }
-    
-# TODO: CHANGE TO SOCKETS. DELETE THIS API
-@app.post("/replicate_block")
-async def replicate_block(data: dict):
-    ledger_name = data.get("ledger_name")
-    block_dict = data.get("block")
-    if ledger_name not in ledgers:
-        raise HTTPException(status_code=400, detail="Invalid ledger")
 
-    block = Block.from_dict(block_dict)
-    ledger = ledgers[ledger_name]
-    last_block = ledger.last_block()
-    
-    if block.prev_hash != last_block.block_hash:
-        raise HTTPException(status_code=400, detail="Chain mismatch")
-    with ledger.lock:
-        ledger.chain.append(block)
-        ledger._persist()
-
-    logger.info(f"Replicated block {block.index} into {ledger_name}")
-    return {"status": "replicated"}
+def replicate_block(node, ledger_name, block):
+    try:
+        info = bc_nodes_registry[node]
+        sock = socket(AF_INET, SOCK_STREAM)
+        sock.settimeout(10)
+        sock.connect((node, info["broadcast_port"]))
+        msg = json.dumps({
+            "type": "block_replication",
+            "ledger_name": ledger_name,
+            "block": block
+        })
+        sock.sendall(msg.encode())
+        ack = sock.recv(1024).decode().strip()
+        sock.close()
+        if ack == "OK":
+            logger.info(f"Replicated block to {node}")
+        else:
+            logger.error(f"Replication rejected by {node}: {ack}")
+    except Exception as e:
+        logger.error(f"Failed to replicate block to {node}: {e}")

@@ -30,8 +30,10 @@ logger = get_logger()
 
 # TODO: call submit_model API in the flow
 
-DATA_PATH="/app/shared/tiny_dataset.pt"
-WEIGHTS_PATH="./weights.pt"
+DATA_PATH = "/app/shared/tiny_dataset.pt"
+NODE_ID_ENV = os.getenv("NODE_ID", "unknown")
+WEIGHTS_PATH = f"/app/weights_{NODE_ID_ENV}.pt"
+MODEL_PATH = f"/app/model_{NODE_ID_ENV}.pt"
 
 class NodeState:
     def __init__(self):
@@ -234,14 +236,17 @@ if __name__ == "__main__":
         logger.info("Starting heartbeat loop...")
         heartbeat_loop()
 
-async def download_weights(url):
-    client = httpx.AsyncClient()
-    async with client.stream('GET', url) as res:
-        res.raise_for_status()
+async def download_weights(url, target_path):
+    temp_file_path = f"weights_temp_{uuid.uuid4()}.pt"
+    async with httpx.AsyncClient() as client:
+        async with client.stream('GET', url) as res:
+            res.raise_for_status()
+            with open(temp_file_path, "wb") as f:
+                async for chunk in res.aiter_bytes():
+                    f.write(chunk)
+            logger.info(f"saved model to {temp_file_path}")
 
-        with open("weights.pt", "wb") as f:
-            async for chunk in res.aiter_bytes():
-                f.write(chunk)
+    os.replace(temp_file_path, target_path)
 
 def signal_round_complete(round_id, node_id, hospital_id):
     channel = f"fl_done"
@@ -272,19 +277,18 @@ async def handle_training(epoch_num, round_num, node_state):
     
     # loading the global model
     endpoint = "/get_global_weights"
-    await download_weights(HOSPITAL_URL + endpoint)
+    await download_weights(HOSPITAL_URL + endpoint, WEIGHTS_PATH)
     logger.info("Training loop: Downloaded weights")
 
     # training model
     logger.info("Training loop: Starting training now")
     node_state.set_training(epoch_num, round_num)
-    metrics = client_update(DATA_PATH, WEIGHTS_PATH)
+    metrics = client_update(DATA_PATH, WEIGHTS_PATH, MODEL_PATH)
     node_state.set_idle()
 
     # submitting model to blockchain
     logger.info("Sending model to blockchain for verification")
-    model_path = "./model.pt"
-    res = await upload_model_to_blockchain(model_path, metrics)
+    res = await upload_model_to_blockchain(MODEL_PATH, metrics)
     logger.info(f"Response received from blockchain: {res}")
 
     # barrier checkin
