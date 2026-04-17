@@ -32,7 +32,10 @@ logger = get_logger()
 
 DATA_PATH = "/app/shared/tiny_dataset.pt"
 NODE_ID_ENV = os.getenv("NODE_ID", "unknown")
+
+os.makedirs("/app/global_weights", exist_ok=True)
 WEIGHTS_PATH = f"/app/global_weights/weights_{NODE_ID_ENV}.pt"
+os.makedirs("/app/models", exist_ok=True)
 MODEL_PATH = f"/app/models/model_{NODE_ID_ENV}.pt"
 
 class NodeState:
@@ -237,7 +240,7 @@ if __name__ == "__main__":
         heartbeat_loop()
 
 async def download_weights(url, target_path):
-    temp_file_path = f"weights_temp_{uuid.uuid4()}.pt"
+    temp_file_path = f"./weights_temp_{uuid.uuid4()}.pt"
     async with httpx.AsyncClient() as client:
         async with client.stream('GET', url) as res:
             res.raise_for_status()
