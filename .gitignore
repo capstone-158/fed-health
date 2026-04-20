@@ -11,3 +11,6 @@ data/
 data*
 *.pt*
 ledger/
+cached/
+secrets/
+weights/
