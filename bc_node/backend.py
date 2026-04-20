@@ -198,6 +198,7 @@ def recv_model_and_hash():
                                 if chunk.endswith(b"eof"):
                                     if len(chunk) > 3:
                                         hasher.update(chunk[:-3])
+                                        f.write(chunk[:-3])
                                     break
                                 
                                 hasher.update(chunk)
@@ -209,11 +210,11 @@ def recv_model_and_hash():
 
                             client_sock.sendall(model_hash.encode())
                         
-                        final_path = f"/app/models/commit/{model_hash}.pt"
+                        final_path = f"/app/client_models/commit/{model_hash}.pt"
                         # listen for commit signal then save the model to a final path
                         signal = client_sock.recv(16).decode()
                         if signal == "COMMIT":
-                            shutil.move(stage_path, final_path)
+                            os.replace(stage_path, final_path)
                         else:
                             os.remove(stage_path)
                         

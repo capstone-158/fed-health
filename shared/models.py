@@ -10,18 +10,13 @@ NUM_CLASSES = 9
 class AdaptedAlexNet(nn.Module):
     def __init__(self, num_classes):
         super(AdaptedAlexNet, self).__init__()
-
-        # Load pretrained AlexNet
+        
         try:
             from torchvision.models import AlexNet_Weights
             self.model = models.alexnet(weights=AlexNet_Weights.IMAGENET1K_V1)
         except ImportError:
             self.model = models.alexnet(pretrained=True)
-
-        # Adjust for 100x100 input
         self.model.avgpool = nn.AdaptiveAvgPool2d((6, 6))
-
-        # Replace final classifier layer
         num_ftrs = self.model.classifier[6].in_features
         self.model.classifier[6] = nn.Linear(num_ftrs, num_classes)
 
@@ -90,14 +85,12 @@ class ImprovedNet(nn.Module):
 class AdaptedResNet18(nn.Module):
     def __init__(self, num_classes):
         super(AdaptedResNet18, self).__init__()
-        #loading pretrained weights
+
         try:
             from torchvision.models import ResNet18_Weights
             self.model = models.resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
         except ImportError:
             self.model = models.resnet18(pretrained=True)
-        
-        #downsizing to 100x100 
         num_ftrs = self.model.fc.in_features
         self.model.fc = nn.Linear(num_ftrs, num_classes)
 
