@@ -23,7 +23,7 @@ services:
     volumes:
       - ./bc_node:/app
       - ./shared:/app/shared:ro
-      - ./bc_node/ledger:/app/ledger
+      - ./node_ledgers/bc_node_ledger_0:/app/ledger
     environment:
       BC_NODE_ID: 0
       LEADER: True
@@ -39,7 +39,7 @@ services:
     volumes:
       - ./bc_node:/app
       - ./shared:/app/shared:ro
-      - ./bc_node/ledger:/app/ledger
+      - ./node_ledgers/bc_node_ledger_1:/app/ledger
     environment:
       BC_NODE_ID: 1
       LEADER: False
@@ -55,7 +55,7 @@ services:
     volumes:
       - ./bc_node:/app
       - ./shared:/app/shared:ro
-      - ./bc_node/ledger:/app/ledger
+      - ./node_ledgers/bc_node_ledger_2:/app/ledger
     environment:
       BC_NODE_ID: 2
       LEADER: False
