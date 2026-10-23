@@ -50,8 +50,9 @@ def listen():
                 state_manager.update_node_status(
                     h_id, node_id, 
                     state=status.get("state"),
-                    round_id=status.get("round"),
-                    epoch=status.get("epoch")
+                    # node puts round/epoch inside "payload", not at the top level
+                    round_id=status.get("payload", {}).get("round"),
+                    epoch=status.get("payload", {}).get("epoch")
                 )
                 logger.info(f"Heartbeat from node_{node_id}: {status.get('state')}")
 

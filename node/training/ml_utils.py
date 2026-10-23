@@ -10,11 +10,12 @@ import sys
 import os
 from shared.models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
 from shared.state_manager import get_hospital_current_round
-from shared.config import BATCH_SIZE, LEARNING_RATE, EPOCHS, NUM_CLASSES, HOSPITAL_URL
+from shared.config import BATCH_SIZE, MICRO_BATCH, LEARNING_RATE, MOMENTUM, WEIGHT_DECAY, EPOCHS, NUM_CLASSES, HOSPITAL_URL
 from shared.commons import get_model, get_logger
 
 logger = get_logger()
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# mps = Apple GPU, only available when the node runs natively on macOS (docker on mac is cpu only)
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
 from torchvision import transforms
 from medmnist import PathMNIST
@@ -38,115 +39,8 @@ def get_colon_data():
     return train_dataset, val_dataset, test_dataset
 
 
-# ask anagha
-def get_best_ensemble_weights(models, val_loader, device):
-    #Grid search to find the best weights (acc to algo5 of paper)
-    print("Starting Grid Search for Best Ensemble Weights...")
-    
-    # Cacheing validation predictions for speed
-    print("   Caching validation predictions...")
-    all_probs = [[], [], []] # Stores [AlexNet, ResNet, Net] probabilities
-    true_labels = []
-    
-    # Set models to evaluation mode
-    for m in models: m.eval()
-    
-    with torch.no_grad():
-        for inputs, labels in val_loader:
-            inputs = inputs.to(device)
-            # Altering the label size by converting from [batch, 1] to [batch] if necessary
-            if len(labels.shape) > 1: labels = labels.squeeze(1).long()
-            else: labels = labels.long()
-            
-            true_labels.append(labels.cpu())
-            
-            # Get Softmax Probabilities for each model
-            p1 = F.softmax(models[0](inputs), dim=1).cpu()
-            p2 = F.softmax(models[1](inputs), dim=1).cpu()
-            p3 = F.softmax(models[2](inputs), dim=1).cpu()
-            
-            all_probs[0].append(p1)
-            all_probs[1].append(p2)
-            all_probs[2].append(p3)
-
-    # Stack into big tensors for fast math
-    P1 = torch.cat(all_probs[0])
-    P2 = torch.cat(all_probs[1])
-    P3 = torch.cat(all_probs[2])
-    Y  = torch.cat(true_labels)
-    
-    # Grid definition
-    # We step by 0.1 
-    steps = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    
-    # Generate all combinations of weights
-    combinations = list(itertools.product(steps, repeat=3))
-    
-    best_acc = 0.0
-    best_alpha = (0.33, 0.33, 0.33) # Default equal weights
-    
-    print(f"   Testing {len(combinations)} weight combinations...")
-    
-    # Grid search loop
-    for alpha in combinations:
-        # Normalize weights so they sum to 1.0 
-        total = sum(alpha)
-        if total == 0: continue # Skip all-zero combination
-        
-        w1 = alpha[0] / total
-        w2 = alpha[1] / total
-        w3 = alpha[2] / total
-        
-        # Weighted Ensemble Probability
-        # P_ensemble = w1*P1 + w2*P2 + w3*P3
-        P_ensemble = (w1 * P1) + (w2 * P2) + (w3 * P3)
-        
-        # Get Predictions
-        preds = torch.argmax(P_ensemble, dim=1)
-        
-        # Calculate Accuracy 
-        correct = (preds == Y).sum().item()
-        accuracy = correct / len(Y)
-        
-        # Update Best
-        if accuracy > best_acc:
-            best_acc = accuracy
-            best_alpha = (w1, w2, w3)
-
-    print(f"Best Weights Found: {best_alpha}")
-    print(f"Validation Accuracy with these weights: {best_acc*100:.2f}%")
-    
-    return best_alpha
-
-# ask anagha
-def evaluate_ensemble(models, weights, test_loader, device):
-    #uses the best weights found to test on the final TEST set
-    print(f"\nRunning Final Ensemble Test with Weights {weights}...")
-    for m in models: m.eval()
-    
-    correct = 0
-    total = 0
-    
-    with torch.no_grad():
-        for inputs, labels in test_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            if len(labels.shape) > 1: labels = labels.squeeze(1).long()
-            else: labels = labels.long()
-            
-            p1 = F.softmax(models[0](inputs), dim=1)
-            p2 = F.softmax(models[1](inputs), dim=1)
-            p3 = F.softmax(models[2](inputs), dim=1)
-            
-            # Weighted Sum
-            avg_prob = (weights[0] * p1) + (weights[1] * p2) + (weights[2] * p3)
-            
-            preds = torch.argmax(avg_prob, dim=1)
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
-            
-    acc = 100 * correct / total
-    return acc
-
+# ensemble weight grid search (Alg. 5) + ensemble eval moved to shared/ensemble.py,
+# it now runs on the blockchain nodes over the hospitals' output probabilities
 
 '''
 remove once everything's working
@@ -175,7 +69,8 @@ def load_global_weights(model_type):
 '''
 class NodeDataset(Dataset):
     def __init__(self, data_path):
-        data = torch.load(data_path, map_location="cpu")
+        # mmap: shard stays on disk / page cache instead of fully in RAM (shards are up to 1.8 GB)
+        data = torch.load(data_path, map_location="cpu", mmap=True)
         self.images = data["images"]
         self.labels = data["labels"]
 
@@ -186,7 +81,8 @@ class NodeDataset(Dataset):
         return self.images[idx], self.labels[idx]
 
 
-def client_update(data_path, weights_path, model_path):
+def client_update(data_path, weights_path, model_path, on_epoch=None):
+    # on_epoch(epoch): called at the start of every epoch so the heartbeat can report live progress
     endpoint = "/get_model_type"
     res = requests.get(HOSPITAL_URL + endpoint)
     res.raise_for_status()
@@ -196,19 +92,26 @@ def client_update(data_path, weights_path, model_path):
     model.load_state_dict(torch.load(weights_path, map_location=DEVICE))
 
     client_dataset = NodeDataset(data_path)
-    train_loader = DataLoader(client_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    train_loader = DataLoader(client_dataset, batch_size=MICRO_BATCH, shuffle=True)
+    accum_steps = max(1, BATCH_SIZE // MICRO_BATCH)
     logger.info("Training loop: Data loaded")
 
-    logger.info("Training loop: Starting model training now")
-    model.train()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    logger.info(f"Training loop: Starting model training now, batch {BATCH_SIZE} as {accum_steps} x {MICRO_BATCH}")
+    optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
     criterion = torch.nn.CrossEntropyLoss()
+    optimizer.zero_grad()
     metrics = {
         "loss": [],
         "accuracy": []
     }
 
     for epoch in range(EPOCHS):
+        # back to train mode each epoch: evaluate_model() flips the model to eval()
+        # at the end of the previous epoch, which would otherwise leave BatchNorm/Dropout
+        # in inference mode for the rest of training.
+        model.train()
+        if on_epoch:
+            on_epoch(epoch)
         logger.info(f"Training loop: Node {os.getenv('NODE_ID')}, currently on epoch {epoch}")
         total_loss = 0.0
 
@@ -216,11 +119,14 @@ def client_update(data_path, weights_path, model_path):
             x = x.to(DEVICE)
             y = y.view(-1).long().to(DEVICE)
 
-            optimizer.zero_grad()
             outputs = model(x)
             loss = criterion(outputs, y)
-            loss.backward()
-            optimizer.step()
+            # scale so the summed gradient over accum_steps micro batches equals one big batch's
+            (loss / accum_steps).backward()
+
+            if (i + 1) % accum_steps == 0 or (i + 1) == len(train_loader):
+                optimizer.step()
+                optimizer.zero_grad()
 
             total_loss += loss.item()
 
@@ -228,20 +134,24 @@ def client_update(data_path, weights_path, model_path):
                 print(f"Epoch {epoch+1}, Batch {i}/{len(train_loader)}")
 
         avg_loss = total_loss / len(train_loader)
-        train_acc = evaluate_model(model, client_dataset)
-
         metrics["loss"].append(avg_loss)
-        metrics["accuracy"].append(train_acc)
+        logger.info(f"Training loop: Node {os.getenv('NODE_ID')}, epoch {epoch} loss {avg_loss:.4f}")
+
+    # train accuracy once per round, not every epoch: it's a full extra pass over the shard
+    train_acc = evaluate_model(model, client_dataset)
+    metrics["accuracy"].append(train_acc)
+    logger.info(f"Training loop: Node {os.getenv('NODE_ID')}, train accuracy after this round {train_acc:.2f}%")
     metrics["dataset_len"] = len(client_dataset)
 
     logger.info("Training loop: Training complete")
-    torch.save(model.state_dict(), model_path)
+    # save cpu tensors so the hospital (linux container, no gpu) can load it
+    torch.save({k: v.cpu() for k, v in model.state_dict().items()}, model_path)
     logger.info(f"Model saved to {model_path}")
 
     return metrics
 
 def evaluate_model(model, dataset):
-    loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
+    loader = DataLoader(dataset, batch_size=MICRO_BATCH, shuffle=False)
     model.eval()
     correct = 0
     total = 0

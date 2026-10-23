@@ -5,16 +5,22 @@ services:
     image: redis:alpine
     networks:
       - mednet
+    ports:
+      - "6380:6379"   # reachable from macOS for natively running nodes (run_native.py)
 
   redis_h1:
     image: redis:alpine
     networks:
       - mednet
+    ports:
+      - "6381:6379"   # reachable from macOS for natively running nodes (run_native.py)
 
   redis_h2:
     image: redis:alpine
     networks:
       - mednet
+    ports:
+      - "6382:6379"   # reachable from macOS for natively running nodes (run_native.py)
 
   bc_node_0:
     build: ./bc_node
@@ -30,7 +36,7 @@ services:
       BC_NODE_NAME: bc_node_0
       BC_NODE_PORT: 5000
     ports:
-      - "5300:5000"
+      - "5050:5000"   # 5000 on macOS is taken by AirPlay (ControlCenter)
 
   bc_node_1:
     build: ./bc_node
@@ -73,16 +79,24 @@ services:
       - ./shared:/app/shared:ro
       - ./h_node/secrets:/app/secrets
       - ./h_node/cached:/app/cached
+      - ${DATA_DIR:-./data/tiny}:/app/data:ro
     depends_on:
       - redis_h0
     environment:
       H_ID: 0
-      model_type: test
+      model_type: ${H0_MODEL:-test}
+      ROUNDS: ${ROUNDS:-10}
+      EPOCHS: ${EPOCHS:-20}
+      BATCH_SIZE: ${BATCH_SIZE:-128}
+      MICRO_BATCH: ${MICRO_BATCH:-128}
+      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
+      NUM_CLASSES: ${NUM_CLASSES:-9}
       H_NODE_NAME: hospital_0
       REDIS_HOST: redis_h0
       nodes: "node_0,node_1"
     ports:
       - "8000:8000"
+      - "4000:4000"   # heartbeat port, for natively running nodes
 
   h_node_1:
     build: ./h_node
@@ -93,9 +107,16 @@ services:
       - ./shared:/app/shared:ro
       - ./h_node/secrets:/app/secrets
       - ./h_node/cached:/app/cached
+      - ${DATA_DIR:-./data/tiny}:/app/data:ro
     environment:
       H_ID: 1
-      model_type: test
+      model_type: ${H1_MODEL:-test}
+      ROUNDS: ${ROUNDS:-10}
+      EPOCHS: ${EPOCHS:-20}
+      BATCH_SIZE: ${BATCH_SIZE:-128}
+      MICRO_BATCH: ${MICRO_BATCH:-128}
+      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
+      NUM_CLASSES: ${NUM_CLASSES:-9}
       H_NODE_NAME: hospital_1
       REDIS_HOST: redis_h1
       nodes: "node_2,node_3"
@@ -103,6 +124,7 @@ services:
       - redis_h1
     ports:
       - "8100:8000"
+      - "4100:4000"   # heartbeat port, for natively running nodes
 
   h_node_2:
     build: ./h_node
@@ -113,9 +135,16 @@ services:
       - ./shared:/app/shared:ro
       - ./h_node/secrets:/app/secrets
       - ./h_node/cached:/app/cached
+      - ${DATA_DIR:-./data/tiny}:/app/data:ro
     environment:
       H_ID: 2
-      model_type: test
+      model_type: ${H2_MODEL:-test}
+      ROUNDS: ${ROUNDS:-10}
+      EPOCHS: ${EPOCHS:-20}
+      BATCH_SIZE: ${BATCH_SIZE:-128}
+      MICRO_BATCH: ${MICRO_BATCH:-128}
+      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
+      NUM_CLASSES: ${NUM_CLASSES:-9}
       H_NODE_NAME: hospital_2
       REDIS_HOST: redis_h2
       nodes: "node_4,node_5"
@@ -123,6 +152,7 @@ services:
       - redis_h2
     ports:
       - "8200:8000"
+      - "4200:4000"   # heartbeat port, for natively running nodes
 
   node_0:
     build: ./node
@@ -130,11 +160,17 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       # - ./other/models:/app/models:ro   # this can be removed once everything is working
-      - ./data/node_0.pt:/app/data.pt
+      - ${DATA_DIR:-./data/tiny}:/app/data:ro
     environment:
       NODE_ID: 0
       H_ID: 0
       H_HOST: h_node_0
+      ROUNDS: ${ROUNDS:-10}
+      EPOCHS: ${EPOCHS:-20}
+      BATCH_SIZE: ${BATCH_SIZE:-128}
+      MICRO_BATCH: ${MICRO_BATCH:-128}
+      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
+      NUM_CLASSES: ${NUM_CLASSES:-9}
       REDIS_HOST: redis_h0
     networks:
       - mednet
@@ -145,11 +181,17 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       # - ./other/models:/app/models:ro
-      - ./data/node_1.pt:/app/data.pt
+      - ${DATA_DIR:-./data/tiny}:/app/data:ro
     environment:
       NODE_ID: 1
       H_ID: 0
       H_HOST: h_node_0
+      ROUNDS: ${ROUNDS:-10}
+      EPOCHS: ${EPOCHS:-20}
+      BATCH_SIZE: ${BATCH_SIZE:-128}
+      MICRO_BATCH: ${MICRO_BATCH:-128}
+      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
+      NUM_CLASSES: ${NUM_CLASSES:-9}
       REDIS_HOST: redis_h0
     networks:
       - mednet
@@ -160,11 +202,17 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       # - ./other/models:/app/models:ro
-      - ./data/node_2.pt:/app/data.pt
+      - ${DATA_DIR:-./data/tiny}:/app/data:ro
     environment:
       NODE_ID: 2
       H_ID: 1
       H_HOST: h_node_1
+      ROUNDS: ${ROUNDS:-10}
+      EPOCHS: ${EPOCHS:-20}
+      BATCH_SIZE: ${BATCH_SIZE:-128}
+      MICRO_BATCH: ${MICRO_BATCH:-128}
+      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
+      NUM_CLASSES: ${NUM_CLASSES:-9}
       REDIS_HOST: redis_h1
     networks:
       - mednet
@@ -175,11 +223,17 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       # - ./other/models:/app/models:ro
-      - ./data/node_3.pt:/app/data.pt
+      - ${DATA_DIR:-./data/tiny}:/app/data:ro
     environment:
       NODE_ID: 3
       H_ID: 1
       H_HOST: h_node_1
+      ROUNDS: ${ROUNDS:-10}
+      EPOCHS: ${EPOCHS:-20}
+      BATCH_SIZE: ${BATCH_SIZE:-128}
+      MICRO_BATCH: ${MICRO_BATCH:-128}
+      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
+      NUM_CLASSES: ${NUM_CLASSES:-9}
       REDIS_HOST: redis_h1
     networks:
       - mednet
@@ -190,11 +244,17 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       # - ./other/models:/app/models:ro
-      - ./data/node_4.pt:/app/data.pt
+      - ${DATA_DIR:-./data/tiny}:/app/data:ro
     environment:
       NODE_ID: 4
       H_ID: 2
       H_HOST: h_node_2
+      ROUNDS: ${ROUNDS:-10}
+      EPOCHS: ${EPOCHS:-20}
+      BATCH_SIZE: ${BATCH_SIZE:-128}
+      MICRO_BATCH: ${MICRO_BATCH:-128}
+      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
+      NUM_CLASSES: ${NUM_CLASSES:-9}
       REDIS_HOST: redis_h2
     networks:
       - mednet
@@ -205,11 +265,17 @@ services:
       - ./node:/app
       - ./shared:/app/shared:ro
       # - ./other/models:/app/models:ro
-      - ./data/node_5.pt:/app/data.pt
+      - ${DATA_DIR:-./data/tiny}:/app/data:ro
     environment:
       NODE_ID: 5
       H_ID: 2
       H_HOST: h_node_2
+      ROUNDS: ${ROUNDS:-10}
+      EPOCHS: ${EPOCHS:-20}
+      BATCH_SIZE: ${BATCH_SIZE:-128}
+      MICRO_BATCH: ${MICRO_BATCH:-128}
+      ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
+      NUM_CLASSES: ${NUM_CLASSES:-9}
       REDIS_HOST: redis_h2
     networks:
       - mednet

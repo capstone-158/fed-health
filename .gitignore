@@ -15,3 +15,8 @@ cached/
 secrets/
 weights/
 bc_*_ledger*
+native_run/
+side_shit/
+results/
+improvements/
+docs/

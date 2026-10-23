@@ -9,9 +9,12 @@ from shared import state_manager
 from shared.commons import *
 import os
 from cryptography.hazmat.primitives import serialization
-from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT, HEARTBEAT_INTERVAL, ROUNDS
+from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT, HEARTBEAT_INTERVAL, ROUNDS, EPOCHS, ROUND_TIMEOUT, BLOCKCHAIN_BACKEND_URL, VAL_DATA_PATH, TEST_DATA_PATH
 import orchestrator
 import backend
+import httpx
+from ml import perform_fedavg, predict_probs
+from shared.ensemble import format_summary
 
 logger = get_logger()
 
@@ -50,27 +53,6 @@ completed_nodes = set()
 lock = threading.Lock()
 rounds_completed = 0
 
-'''
-TODO: bug fix
-Bug 1 — listen_done doesn't filter by this hospital's nodes (line 69-75):
-
-
-# current code — compares against the SENDER's hospital's round, not this h_node's
-current_round = state_manager.get_hospital_current_round(data["hospital_id"])
-if round_id != current_round:
-    continue
-with lock:
-    completed_nodes.add(node_id)
-All 3 h_nodes subscribe to fl_done. So h_node_0 receives done events from nodes 3, 4, 5 (hospitals 1 & 2) and counts them toward its own completed_nodes. 
-The round appears complete when it's not.
-
-fix:
-# In listen_done — only count nodes belonging to THIS hospital
-own_hospital_id = os.getenv("H_ID")
-current_round = state_manager.get_hospital_current_round(own_hospital_id)
-if round_id != current_round or data["hospital_id"] != own_hospital_id:
-    continue
-'''
 def listen_done():
     r = state_manager.get_connection()
     pubsub = r.pubsub()
@@ -87,9 +69,14 @@ def listen_done():
             round_id = data["round_id"]
             node_id = data["node_id"]
 
-            current_round = state_manager.get_hospital_current_round(data["hospital_id"])
+            # All 3 h_nodes subscribe to the same `fl_done` channel, so count only
+            # done-events from THIS hospital's own nodes against THIS hospital's
+            # current round. Otherwise other hospitals' nodes inflate the count and
+            # the round appears complete before it actually is.
+            own_hospital_id = os.getenv("H_ID")
+            current_round = state_manager.get_hospital_current_round(own_hospital_id)
 
-            if round_id != current_round:
+            if round_id != current_round or data["hospital_id"] != own_hospital_id:
                 continue
 
             with lock:
@@ -127,7 +114,7 @@ def pub(round_id, node_ids, epochs=20, model_ref=None):
 
 state_manager.get_connection()
 
-def wait_for_round(round_id, hospital_id, timeout=600):
+def wait_for_round(round_id, hospital_id, timeout=ROUND_TIMEOUT):
     start = time.time()
 
     while time.time() - start < timeout:
@@ -150,21 +137,30 @@ def orchestration_loop():
 
     round_id = state_manager.get_hospital_current_round(hospital_id)
 
+    if round_id == 0 or not os.path.exists(backend.GLOBAL_WEIGHTS_PATH):
+        backend.init_global_weights()
+
     time.sleep(HEARTBEAT_INTERVAL)
 
+    last_no_nodes_warning = 0
+
     while True:
-        logger.info(f"WE ARE CURRENTLY ON ROUND {round_id}")
         if round_id >= ROUNDS:
             logger.info(f"All {ROUNDS} rounds complete. FL Process ending!")
             break
-        logger.info(f"Starting round {round_id}")
 
         k_nodes = orchestrator.select_k_nodes()
 
         if not k_nodes:
-            logger.warning("No live nodes available")
+            # keep waiting for nodes, but dont flood the logs every 5s
+            if time.time() - last_no_nodes_warning > 60:
+                logger.warning(f"No live nodes available for round {round_id}, waiting for heartbeats...")
+                last_no_nodes_warning = time.time()
             time.sleep(5)
             continue
+
+        logger.info(f"WE ARE CURRENTLY ON ROUND {round_id}")
+        logger.info(f"Starting round {round_id}, waiting up to {ROUND_TIMEOUT}s for nodes {k_nodes}")
 
         if len(k_nodes) < CLIENTS:
             logger.warning(f"Only {len(k_nodes)} nodes available")
@@ -174,7 +170,8 @@ def orchestration_loop():
             completed_nodes.clear()
 
 # TODO: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!EVERYTHING CAN FAIL HERE DUE TO THE NAMING DIFFERENCE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
-        pub(round_id, node_ids=k_nodes, epochs=20,model_ref=f"global_round_{round_id}.pt")
+        round_started_at = time.time()
+        pub(round_id, node_ids=k_nodes, epochs=EPOCHS,model_ref=f"global_round_{round_id}.pt")
 
         success = wait_for_round(round_id, hospital_id)
 
@@ -183,11 +180,19 @@ def orchestration_loop():
 
             state_manager.set_round_state(round_id, "completed")
 
-            # TODO:
-            # - receive client models
-            # - validate model
-            # - aggregate models
-            # - update global model
+            # collect this round's local models from B_i, FedAvg them into GM_i
+            logger.info(f"Aggregation: pulling round {round_id} local models of nodes {k_nodes} from blockchain")
+            client_updates = backend.get_round_models(round_id, k_nodes, round_started_at)
+            if client_updates:
+                logger.info(f"Aggregation: running fedavg on {len(client_updates)} models, samples per model: {[n for _, n in client_updates]}")
+                perform_fedavg(client_updates, backend.GLOBAL_WEIGHTS_PATH)
+                logger.info(f"Aggregation: round {round_id} global model saved to {backend.GLOBAL_WEIGHTS_PATH}, nodes get this next round")
+                try:
+                    backend.submit_global_model(round_id)
+                except Exception as e:
+                    logger.error(f"Aggregation: could not record round {round_id} global model on blockchain: {e}")
+            else:
+                logger.error(f"Aggregation: no verified local models for round {round_id}, keeping previous global model")
 
             round_id += 1
             state_manager.set_hospital_current_round(hospital_id, round_id)
@@ -195,6 +200,46 @@ def orchestration_loop():
         else:
             logger.error(f"Round {round_id} FAILED")
             state_manager.set_round_state(round_id, "failed")
+
+    logger.info("!!!!!!!!!!LOCAL FL DONE, MOVING TO MULTI-INSTITUTIONAL ENSEMBLE!!!!!!!!!!")
+    submit_for_ensemble()
+
+
+def submit_for_ensemble():
+    '''
+    After local FL is done, send P_Hi of the final GM_i on the shared val/test splits to
+    the multi-institutional blockchain B_M, which tunes the ensemble weights (Alg. 5-6).
+    '''
+    hospital_id = os.getenv("H_ID")
+    logger.info(f"Ensemble: running final global model {backend.GLOBAL_WEIGHTS_PATH} on val split {VAL_DATA_PATH}")
+    val_probs, val_labels = predict_probs(backend.GLOBAL_WEIGHTS_PATH, VAL_DATA_PATH)
+    logger.info(f"Ensemble: running final global model {backend.GLOBAL_WEIGHTS_PATH} on test split {TEST_DATA_PATH}")
+    test_probs, test_labels = predict_probs(backend.GLOBAL_WEIGHTS_PATH, TEST_DATA_PATH)
+
+    global_model_id = backend.get_latest_global_model_id()
+    logger.info(f"Ensemble: latest global model id on blockchain is {global_model_id}")
+
+    submission = {
+        "hospital_id": f"hospital_{hospital_id}",
+        "global_model_id": global_model_id,
+        "val": {"probs": val_probs, "labels": val_labels},
+        "test": {"probs": test_probs, "labels": test_labels},
+    }
+    logger.info(f"Ensemble: sending {len(val_probs)} val + {len(test_probs)} test probabilities to blockchain leader at {BLOCKCHAIN_BACKEND_URL}/submit_ensemble_probs")
+    try:
+        res = httpx.post(f"{BLOCKCHAIN_BACKEND_URL}/submit_ensemble_probs", json=submission, timeout=600)
+        res.raise_for_status()
+        bc_response = res.json()
+        if bc_response["status"] == "waiting":
+            logger.info(f"Ensemble: submitted, leader is still waiting on other hospitals. received so far: {bc_response['received']}")
+        elif bc_response["status"] == "success":
+            logger.info(f"!!!!!!!!!!ENSEMBLE WEIGHTS ON MULTI-INST BLOCKCHAIN!!!!!!!!!! block {bc_response['block_index']}")
+            logger.info(format_summary(bc_response["result"], bc_response["block_index"]))
+        else:
+            logger.error(f"Ensemble: blockchain could not agree on the weights: {bc_response}")
+        logger.info(f"Ensemble: hospital_{hospital_id} done. final weights can be read from {BLOCKCHAIN_BACKEND_URL}/ensemble_result")
+    except Exception as e:
+        logger.error(f"Ensemble: could not submit probabilities for ensemble tuning: {e}")
 
 listen_done_thread = threading.Thread(target=listen_done, daemon=True)
 listen_done_thread.start()

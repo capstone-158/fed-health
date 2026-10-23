@@ -42,13 +42,17 @@ block_hash = SHA256(index + prev_hash + payload)
 '''
 
 import shutil
-from fastapi import FastAPI, Request
+import re
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import FileResponse
+import httpx
 import json
 import hashlib
 import os
 import queue
 from socket import *
-from shared.config import BLOCKCHAIN_PORTS, BLOCKCHAIN_LEADER_HOSTNAME, MODEL_CHUNK_SIZE
+from shared.config import BLOCKCHAIN_PORTS, BLOCKCHAIN_LEADER_HOSTNAME, MODEL_CHUNK_SIZE, NUM_HOSPITALS
+from shared.ensemble import tune_ensemble, result_hash, format_summary
 from shared.commons import *
 import time
 from ping3 import ping
@@ -174,86 +178,89 @@ def recv_model_and_hash():
 
         while True:
             client_sock, addr = sock.accept()
-            
-            with client_sock:
-                try:
-                    metadata_raw = client_sock.recv(4096).decode()
-                    metadata = json.loads(metadata_raw)
-                    
-                    logger.info(f"Received metadata from {addr}: {metadata}")
-                    
-                    if metadata.get("type") == "model_broadcast":
-                        client_sock.sendall(b"OK")
-                        logger.info(f"sent ok to {addr}, ready to receive model")
+            # one thread per connection: with a single handler, two uploads arriving at the same time
+            # could be picked up in opposite order by the two peers and deadlock each other
+            threading.Thread(target=handle_connection, args=(client_sock, addr), daemon=True).start()
 
-                        hasher = hashlib.sha256()
-                        stage_path = f"/app/client_models/stage/model_{time.time()}.pt"
-
-                        with open(stage_path, "wb") as f:
-                            while True:
-                                chunk = client_sock.recv(MODEL_CHUNK_SIZE)
-                                if not chunk:
-                                    break
-                                
-                                if chunk.endswith(b"eof"):
-                                    if len(chunk) > 3:
-                                        hasher.update(chunk[:-3])
-                                        f.write(chunk[:-3])
-                                    break
-                                
-                                hasher.update(chunk)
-                                f.write(chunk)
-                            
-                            model_hash = hasher.hexdigest()
-                            logger.info(f"received model from {addr}, hash: {model_hash}")
-                            logger.info(f"Model: {model_hash} STAGED")
-
-                            client_sock.sendall(model_hash.encode())
-                        
-                        final_path = f"/app/client_models/commit/{model_hash}.pt"
-                        # listen for commit signal then save the model to a final path
-                        signal = client_sock.recv(16).decode()
-                        if signal == "COMMIT":
-                            os.replace(stage_path, final_path)
-                        else:
-                            os.remove(stage_path)
-                        
-                        logger.info(f"Model: {model_hash} COMMITTED")
-                    
-                    elif metadata.get("type") == "block_replication":
-                        block_dict = metadata.get("block")
-                        ledger_name = metadata.get("ledger_name")
-                        if ledger_name not in ledgers:
-                            logger.info("Invalid ledger")
-                            client_sock.sendall(b"ERROR")
-                            continue
-
-                        block = Block.from_dict(block_dict)
-                        ledger = ledgers[ledger_name]
-                        last_block = ledger.last_block()
-
-                        if block.prev_hash != last_block.block_hash:
-                            logger.info("Chain mismatch")
-                            client_sock.sendall(b"ERROR")
-                            continue
-
-                        with ledger.lock:
-                            ledger.chain.append(block)
-                            ledger._persist()
-
-                        client_sock.sendall(b"OK")
-                        logger.info(f"Replicated block {block.index} into {ledger_name}")
-
-                    else:
-                        client_sock.sendall(b"ERROR")
-                        logger.error(f"Invalid metadata type from {addr}")
-                        continue
-                    
-                except Exception as e:
-                    logger.error(f"Error receiving model from {addr}: {e}")
-    
     except Exception as e:
         logger.error(f"Failed to start model receiver: {e}")
+
+
+def handle_connection(client_sock, addr):
+    with client_sock:
+        try:
+            metadata_raw = client_sock.recv(4096).decode()
+            metadata = json.loads(metadata_raw)
+
+            logger.info(f"Received metadata from {addr}: {metadata}")
+
+            if metadata.get("type") == "model_broadcast":
+                client_sock.sendall(b"OK")
+                logger.info(f"sent ok to {addr}, ready to receive model")
+
+                hasher = hashlib.sha256()
+                stage_path = f"/app/client_models/stage/model_{time.time()}.pt"
+
+                with open(stage_path, "wb") as f:
+                    while True:
+                        chunk = client_sock.recv(MODEL_CHUNK_SIZE)
+                        if not chunk:
+                            break
+
+                        if chunk.endswith(b"eof"):
+                            if len(chunk) > 3:
+                                hasher.update(chunk[:-3])
+                                f.write(chunk[:-3])
+                            break
+
+                        hasher.update(chunk)
+                        f.write(chunk)
+
+                    model_hash = hasher.hexdigest()
+                    logger.info(f"received model from {addr}, hash: {model_hash}")
+                    logger.info(f"Model: {model_hash} STAGED")
+
+                    client_sock.sendall(model_hash.encode())
+
+                final_path = f"/app/client_models/commit/{model_hash}.pt"
+                # listen for commit signal then save the model to a final path
+                signal = client_sock.recv(16).decode()
+                if signal == "COMMIT":
+                    os.replace(stage_path, final_path)
+                    logger.info(f"Model: {model_hash} COMMITTED")
+                else:
+                    os.remove(stage_path)
+                    logger.info(f"Model: {model_hash} REJECTED by leader, removed from stage")
+
+            elif metadata.get("type") == "block_replication":
+                block_dict = metadata.get("block")
+                ledger_name = metadata.get("ledger_name")
+                if ledger_name not in ledgers:
+                    logger.info("Invalid ledger")
+                    client_sock.sendall(b"ERROR")
+                    return
+
+                block = Block.from_dict(block_dict)
+                ledger = ledgers[ledger_name]
+
+                # check + append under the lock, other handler threads may be replicating too
+                with ledger.lock:
+                    if block.prev_hash != ledger.last_block().block_hash:
+                        logger.info("Chain mismatch")
+                        client_sock.sendall(b"ERROR")
+                        return
+                    ledger.chain.append(block)
+                    ledger._persist()
+
+                client_sock.sendall(b"OK")
+                logger.info(f"Replicated block {block.index} into {ledger_name}")
+
+            else:
+                client_sock.sendall(b"ERROR")
+                logger.error(f"Invalid metadata type from {addr}")
+
+        except Exception as e:
+            logger.error(f"Error receiving model from {addr}: {e}")
 
 
 # TODO: use asyncio.create_task() for scalability, look into scalability
@@ -300,11 +307,18 @@ async def submit_local_model(req: Request):
 
     hasher = hashlib.sha256()
 
-    async for chunk in req.stream():
-        hasher.update(chunk)
+    # leader keeps its own copy too, so the hospital can fetch it back for aggregation
+    os.makedirs("/app/client_models/stage", exist_ok=True)
+    os.makedirs("/app/client_models/commit", exist_ok=True)
+    stage_path = f"/app/client_models/stage/leader_{time.time()}.pt"
 
-        for q in node_queues.values():
-            q.put(chunk)
+    with open(stage_path, "wb") as f:
+        async for chunk in req.stream():
+            hasher.update(chunk)
+            f.write(chunk)
+
+            for q in node_queues.values():
+                q.put(chunk)
 
     for q in node_queues.values():
         # basically an EOF flag
@@ -319,7 +333,9 @@ async def submit_local_model(req: Request):
     logger.info(f"results: {results}")
     
     HM = set(h for h in results.values() if h is not None)
-    all_same = len(HM) == 1 and model_hash in HM if HM else True 
+    # every peer must have returned the same hash as the leader. if a peer failed (None) or no
+    # peer answered at all, nothing was verified, so it is not consensus
+    all_same = len(HM) == 1 and model_hash in HM and None not in results.values()
     verified_count = sum(1 for h in results.values() if h == model_hash)
     total_count = len(results)
     
@@ -340,11 +356,18 @@ async def submit_local_model(req: Request):
             sock.close()
 
     if all_same:
+        os.replace(stage_path, f"/app/client_models/commit/{model_hash}.pt")
+    else:
+        os.remove(stage_path)
+
+    if all_same:
         payload = {
             "hospital_id": hospital_id,
             "node_id": metadata.get("node_id"),
             "model_hash": model_hash,
             "model_id": model_id,
+            "round": metadata.get("round"),
+            "kind": metadata.get("kind", "local"),     # "local" = M_i from an edge server, "global" = GM_i
             "metrics": metadata.get("metrics", {}),
             "trust_score": 1.0
         }
@@ -410,3 +433,106 @@ def replicate_block(node, ledger_name, block):
             logger.error(f"Replication rejected by {node}: {ack}")
     except Exception as e:
         logger.error(f"Failed to replicate block to {node}: {e}")
+
+# ---------------- read access for hospitals ----------------
+
+@app.get("/ledger/{ledger_name}")
+def get_ledger(ledger_name: str):
+    if ledger_name not in ledgers:
+        raise HTTPException(404, "Unknown ledger")
+    logger.info(f"Serving {ledger_name} ledger ({len(ledgers[ledger_name].chain)} blocks)")
+    return [b.to_dict() for b in ledgers[ledger_name].chain]
+
+
+@app.get("/model/{model_hash}")
+def get_committed_model(model_hash: str):
+    # hash comes from the ledger; only allow hex so this can't be used to read other files
+    if not re.fullmatch(r"[0-9a-f]{64}", model_hash):
+        raise HTTPException(400, "Invalid model hash")
+    path = f"/app/client_models/commit/{model_hash}.pt"
+    if not os.path.exists(path):
+        logger.error(f"Model {model_hash} requested but never committed")
+        raise HTTPException(404, "Model not committed")
+    logger.info(f"Serving committed model {model_hash} to hospital")
+    return FileResponse(path, media_type="application/octet-stream")
+
+
+# ---------------- multi-institutional blockchain (B_M) ----------------
+#
+# Each hospital sends the output probabilities of its global model on the shared
+# val/test splits. Once all hospitals have submitted, every B_M node runs the grid
+# search (Alg. 5) on the same inputs; if all result hashes agree, the weights and
+# the set of global model ids are appended to the multi_inst ledger (Alg. 6, Fig. 5).
+#
+# NOTE: in the paper the probabilities come out of SMPC encrypted inference
+# (Alg. 2-3). Here each hospital computes them in the clear.
+
+ensemble_submissions = {}
+ensemble_lock = threading.Lock()
+
+
+@app.post("/compute_ensemble_weights")
+def compute_ensemble_weights(submissions: dict):
+    logger.info(f"Leader asked to tune ensemble weights for {sorted(submissions)}")
+    result = tune_ensemble(submissions)
+    h = result_hash(result)
+    logger.info(f"My ensemble result: weights {result['weights']}, hash {h}, sending back to leader")
+    return {"result": result, "hash": h}
+
+
+@app.post("/submit_ensemble_probs")
+def submit_ensemble_probs(submission: dict):
+    hospital_id = submission["hospital_id"]
+
+    with ensemble_lock:
+        ensemble_submissions[hospital_id] = submission
+        logger.info(f"Ensemble probs received from {hospital_id} ({len(ensemble_submissions)}/{NUM_HOSPITALS})")
+        if len(ensemble_submissions) < NUM_HOSPITALS:
+            return {"status": "waiting", "received": sorted(ensemble_submissions)}
+        submissions = dict(ensemble_submissions)
+        ensemble_submissions.clear()
+
+    logger.info("!!!!!!!!!!ALL HOSPITALS SUBMITTED, STARTING ENSEMBLE WEIGHT TUNING!!!!!!!!!!")
+
+    # every B_M node tunes the weights independently
+    result = tune_ensemble(submissions)
+    hashes = {os.getenv("BC_NODE_NAME"): result_hash(result)}
+    logger.info(f"Leader's ensemble result: weights {result['weights']}, hash {hashes[os.getenv('BC_NODE_NAME')]}")
+    for node, info in bc_nodes_registry.items():
+        logger.info(f"Sending probabilities to {node} so it can tune the weights on its own")
+        try:
+            res = httpx.post(f"{info['backend_url']}/compute_ensemble_weights", json=submissions, timeout=300)
+            res.raise_for_status()
+            hashes[node] = res.json()["hash"]
+            logger.info(f"Received ensemble hash from {node}: {hashes[node]}")
+        except Exception as e:
+            logger.error(f"Ensemble tuning failed on {node}: {e}")
+            hashes[node] = None
+
+    HM = set(hashes.values())
+    logger.info(f"Ensemble consensus hashes: {hashes}")
+    if len(HM) != 1 or None in HM:
+        logger.error("Ensemble consensus failed! Hashes don't match.")
+        return {"status": "consensus_failed", "hashes": hashes}
+
+    block = ledgers["multi_inst"].append_block(result)
+    logger.info(f"!!!!!!!!!!ENSEMBLE CONSENSUS MADE!!!!!!!!!! Block {block.index} added to multi_inst: {result}")
+
+    for node in bc_nodes_registry:
+        threading.Thread(
+            target=replicate_block,
+            args=(node, "multi_inst", block.to_dict()),
+            daemon=True
+        ).start()
+
+    logger.info(format_summary(result, block.index, block.block_hash, f"{len(hashes)}/{len(hashes)}"))
+
+    return {"status": "success", "block_index": block.index, "result": result}
+
+
+@app.get("/ensemble_result")
+def get_ensemble_result():
+    chain = ledgers["multi_inst"].chain
+    if len(chain) < 2:
+        raise HTTPException(404, "No ensemble weights on the multi-institutional blockchain yet")
+    return chain[-1].to_dict()

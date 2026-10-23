@@ -5,7 +5,7 @@ import time
 from shared.config import CLIENTS, HEARTBEAT_INTERVAL
 
 def get_connection():
-    r = redis.Redis(host=os.getenv("REDIS_HOST"), port=6379, db=0, decode_responses=True)
+    r = redis.Redis(host=os.getenv("REDIS_HOST"), port=int(os.getenv("REDIS_PORT", 6379)), db=0, decode_responses=True)
     return r
 
 r = get_connection()

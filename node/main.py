@@ -15,6 +15,7 @@ from shared.config import (
     HEARTBEAT_INTERVAL,
     MODEL_CHUNK_SIZE,
     BLOCKCHAIN_LEADER_HOSTNAME,
+    BLOCKCHAIN_BACKEND_URL,
     HOSPITAL_URL,
     BLOCKCHAIN_PORTS,
     BLOCKCHAIN_BACKEND_URL
@@ -30,13 +31,17 @@ logger = get_logger()
 
 # TODO: call submit_model API in the flow
 
-DATA_PATH = "/app/shared/tiny_dataset.pt"
 NODE_ID_ENV = os.getenv("NODE_ID", "unknown")
+# /app/data is whichever data folder the env file mounts (data/tiny, data/small or data/).
+# when running natively on macOS (run_native.py) DATA_DIR / NODE_WORKDIR point at local folders instead
+DATA_DIR = os.getenv("DATA_DIR", "/app/data")
+NODE_WORKDIR = os.getenv("NODE_WORKDIR", "/app")
+DATA_PATH = os.path.join(DATA_DIR, f"node_{NODE_ID_ENV}.pt")
 
-os.makedirs("/app/global_weights", exist_ok=True)
-WEIGHTS_PATH = f"/app/global_weights/weights_{NODE_ID_ENV}.pt"
-os.makedirs("/app/models", exist_ok=True)
-MODEL_PATH = f"/app/models/model_{NODE_ID_ENV}.pt"
+os.makedirs(os.path.join(NODE_WORKDIR, "global_weights"), exist_ok=True)
+WEIGHTS_PATH = os.path.join(NODE_WORKDIR, "global_weights", f"weights_{NODE_ID_ENV}.pt")
+os.makedirs(os.path.join(NODE_WORKDIR, "models"), exist_ok=True)
+MODEL_PATH = os.path.join(NODE_WORKDIR, "models", f"model_{NODE_ID_ENV}.pt")
 
 class NodeState:
     def __init__(self):
@@ -94,7 +99,7 @@ def heartbeat_loop():
         time.sleep(HEARTBEAT_INTERVAL)
 
 
-async def upload_model_to_blockchain(model_path, model_metrics):
+async def upload_model_to_blockchain(model_path, model_metrics, round_num=None):
     """
     Edge server uploads the trained model DIRECTLY to the blockchain network.
     Each bc_node:
@@ -116,8 +121,9 @@ async def upload_model_to_blockchain(model_path, model_metrics):
     metadata["model_id"] = str(uuid.uuid4())
     metadata["timestamp"] = time.time()
     metadata["metrics"] = model_metrics
+    metadata["round"] = round_num
 
-    bc_leader_url = f"http://{BLOCKCHAIN_LEADER_HOSTNAME}:{BLOCKCHAIN_PORTS['backend_port']}/submit_local_model"
+    bc_leader_url = f"{BLOCKCHAIN_BACKEND_URL}/submit_local_model"
 
     logger.info(
         f"Node {node_id}: Uploading model directly to blockchain leader at {bc_leader_url}"
@@ -285,13 +291,17 @@ async def handle_training(epoch_num, round_num, node_state):
 
     # training model
     logger.info("Training loop: Starting training now")
-    node_state.set_training(epoch_num, round_num)
-    metrics = client_update(DATA_PATH, WEIGHTS_PATH, MODEL_PATH)
+    # epoch_num is the total epochs for the round; the heartbeat should carry the epoch in progress
+    node_state.set_training(0, round_num, total_epochs=epoch_num)
+    metrics = client_update(
+        DATA_PATH, WEIGHTS_PATH, MODEL_PATH,
+        on_epoch=lambda epoch: node_state.set_training(epoch, round_num, total_epochs=epoch_num)
+    )
     node_state.set_idle()
 
     # submitting model to blockchain
     logger.info("Sending model to blockchain for verification")
-    res = await upload_model_to_blockchain(MODEL_PATH, metrics)
+    res = await upload_model_to_blockchain(MODEL_PATH, metrics, round_num)
     logger.info(f"Response received from blockchain: {res}")
 
     # barrier checkin
