@@ -10,7 +10,7 @@ import sys
 import os
 from shared.models import AdaptedAlexNet, AdaptedResNet18, ImprovedNet
 from shared.state_manager import get_hospital_current_round
-from shared.config import BATCH_SIZE, MICRO_BATCH, LEARNING_RATE, MOMENTUM, WEIGHT_DECAY, EPOCHS, NUM_CLASSES, HOSPITAL_URL
+from shared.config import BATCH_SIZE, MICRO_BATCH, LEARNING_RATE, MOMENTUM, WEIGHT_DECAY, EPOCHS, NUM_CLASSES, HOSPITAL_URL, ATTACK, ATTACK_NODE
 from shared.commons import get_model, get_logger
 
 logger = get_logger()
@@ -81,6 +81,10 @@ class NodeDataset(Dataset):
         return self.images[idx], self.labels[idx]
 
 
+def attacking(kind):
+    return ATTACK == kind and os.getenv("NODE_ID") == ATTACK_NODE
+
+
 def client_update(data_path, weights_path, model_path, on_epoch=None):
     # on_epoch(epoch): called at the start of every epoch so the heartbeat can report live progress
     endpoint = "/get_model_type"
@@ -105,7 +109,13 @@ def client_update(data_path, weights_path, model_path, on_epoch=None):
         "accuracy": []
     }
 
-    for epoch in range(EPOCHS):
+    if ATTACK != "none" and os.getenv("NODE_ID") == ATTACK_NODE:
+        logger.info(f"!!!!!!!!!!ATTACK MODE: {ATTACK} ON NODE {ATTACK_NODE}!!!!!!!!!!")
+
+    # free rider: skips training and sends back the global model it got
+    epochs = 0 if attacking("free_ride") else EPOCHS
+
+    for epoch in range(epochs):
         # back to train mode each epoch: evaluate_model() flips the model to eval()
         # at the end of the previous epoch, which would otherwise leave BatchNorm/Dropout
         # in inference mode for the rest of training.
@@ -118,6 +128,8 @@ def client_update(data_path, weights_path, model_path, on_epoch=None):
         for i, (x, y) in enumerate(train_loader):
             x = x.to(DEVICE)
             y = y.view(-1).long().to(DEVICE)
+            if attacking("label_flip"):
+                y = (y + 1) % NUM_CLASSES
 
             outputs = model(x)
             loss = criterion(outputs, y)
@@ -141,7 +153,15 @@ def client_update(data_path, weights_path, model_path, on_epoch=None):
     train_acc = evaluate_model(model, client_dataset)
     metrics["accuracy"].append(train_acc)
     logger.info(f"Training loop: Node {os.getenv('NODE_ID')}, train accuracy after this round {train_acc:.2f}%")
-    metrics["dataset_len"] = len(client_dataset)
+    metrics["dataset_len"] = len(client_dataset) * (100 if attacking("inflate") else 1)
+
+    if attacking("free_ride"):
+        metrics["loss"] = [0.1] * EPOCHS
+
+    if attacking("poison"):
+        with torch.no_grad():
+            for p in model.parameters():
+                p.add_(torch.randn_like(p) * 10 * p.std())
 
     logger.info("Training loop: Training complete")
     # save cpu tensors so the hospital (linux container, no gpu) can load it

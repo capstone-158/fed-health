@@ -1,5 +1,6 @@
 # this is where all the threads run
 import time
+import torch
 import uvicorn
 import threading
 import logging
@@ -9,12 +10,13 @@ from shared import state_manager
 from shared.commons import *
 import os
 from cryptography.hazmat.primitives import serialization
-from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT, HEARTBEAT_INTERVAL, ROUNDS, EPOCHS, ROUND_TIMEOUT, BLOCKCHAIN_BACKEND_URL, VAL_DATA_PATH, TEST_DATA_PATH
+from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT, HEARTBEAT_INTERVAL, ROUNDS, EPOCHS, ROUND_TIMEOUT, BLOCKCHAIN_BACKEND_URL, VAL_DATA_PATH, TEST_DATA_PATH, TWIN_TRUST
 import orchestrator
 import backend
 import httpx
 from ml import perform_fedavg, predict_probs
 from shared.ensemble import format_summary
+import twin_trust
 
 logger = get_logger()
 
@@ -183,16 +185,28 @@ def orchestration_loop():
             # collect this round's local models from B_i, FedAvg them into GM_i
             logger.info(f"Aggregation: pulling round {round_id} local models of nodes {k_nodes} from blockchain")
             client_updates = backend.get_round_models(round_id, k_nodes, round_started_at)
+            for u in client_updates:
+                u["weight"] = u["num_samples"]
+
+            if client_updates and TWIN_TRUST:
+                global_state = torch.load(backend.GLOBAL_WEIGHTS_PATH, map_location="cpu")
+                client_updates, report = twin_trust.score_round(hospital_id, round_id, client_updates, global_state)
+                try:
+                    backend.record_trust(round_id, report)
+                except Exception as e:
+                    logger.error(f"Twin trust: could not record round {round_id} report on blockchain: {e}")
+                client_updates = [u for u in client_updates if u["weight"] > 0]
+
             if client_updates:
-                logger.info(f"Aggregation: running fedavg on {len(client_updates)} models, samples per model: {[n for _, n in client_updates]}")
-                perform_fedavg(client_updates, backend.GLOBAL_WEIGHTS_PATH)
+                logger.info(f"Aggregation: running fedavg on {len(client_updates)} models, weight per node: { {u['node_id']: round(u['weight'], 2) for u in client_updates} }")
+                perform_fedavg([(u["state_dict"], u["weight"]) for u in client_updates], backend.GLOBAL_WEIGHTS_PATH)
                 logger.info(f"Aggregation: round {round_id} global model saved to {backend.GLOBAL_WEIGHTS_PATH}, nodes get this next round")
                 try:
                     backend.submit_global_model(round_id)
                 except Exception as e:
                     logger.error(f"Aggregation: could not record round {round_id} global model on blockchain: {e}")
             else:
-                logger.error(f"Aggregation: no verified local models for round {round_id}, keeping previous global model")
+                logger.error(f"Aggregation: no usable local models for round {round_id}, keeping previous global model")
 
             round_id += 1
             state_manager.set_hospital_current_round(hospital_id, round_id)

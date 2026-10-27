@@ -19,6 +19,12 @@ MICRO_BATCH=int(os.getenv("MICRO_BATCH", BATCH_SIZE))
 ROUND_TIMEOUT=int(os.getenv("ROUND_TIMEOUT", 600))
 NUM_HOSPITALS=3
 
+# twin trust experiments: makes one node misbehave on purpose (none | label_flip | poison | free_ride | inflate)
+ATTACK=os.getenv("ATTACK", "none")
+ATTACK_NODE=os.getenv("ATTACK_NODE", "")
+# on: hospitals run the twin trust checks before fedavg, off: plain fedavg like the paper
+TWIN_TRUST=os.getenv("TWIN_TRUST", "off") == "on"
+
 # shared evaluation splits every hospital runs its global model on for ensemble tuning.
 # /app/data is whichever data folder the env file mounts (data/tiny, data/small or data/)
 VAL_DATA_PATH="/app/data/val.pt"

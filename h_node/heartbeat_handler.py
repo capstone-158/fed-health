@@ -44,16 +44,19 @@ def listen():
             if data:
                 status = json.loads(data.decode())
                 node_id = status.get("node_id")
+                # node puts round/epoch inside "payload", not at the top level
+                payload = status.get("payload", {})
 
                 logger.info(f"Got heartbeat from {client_addr}")
                 logger.info(f"payload written is: {status}")
                 state_manager.update_node_status(
                     h_id, node_id, 
                     state=status.get("state"),
-                    # node puts round/epoch inside "payload", not at the top level
-                    round_id=status.get("payload", {}).get("round"),
-                    epoch=status.get("payload", {}).get("epoch")
+                    round_id=payload.get("round"),
+                    epoch=payload.get("epoch")
                 )
+                if status.get("state") == "training" and payload.get("round") is not None:
+                    state_manager.record_twin_training(h_id, node_id, payload["round"], payload.get("epoch"))
                 logger.info(f"Heartbeat from node_{node_id}: {status.get('state')}")
 
     except Exception as e:

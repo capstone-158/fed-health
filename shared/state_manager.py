@@ -73,6 +73,30 @@ def update_node_status(hospital_id, node_id, state, round_id=None, epoch=None):
     r.hset(key, mapping=mapping)
     r.expire(key, 2 * HEARTBEAT_INTERVAL)
 
+# -------------------Digital twin---------------------
+# per node per round record, written by the hospital from what it sees. unlike the liveness key it doesnt expire
+
+def record_twin_training(hospital_id, node_id, round_id, epoch):
+    key = f"twin:hospital:{hospital_id}:node:{node_id}:round:{round_id}"
+    now = time.time()
+    r.hsetnx(key, "first_seen", now)
+    r.hset(key, "last_seen", now)
+    if epoch is not None:
+        r.sadd(f"{key}:epochs", epoch)
+
+def get_twin_round(hospital_id, node_id, round_id):
+    key = f"twin:hospital:{hospital_id}:node:{node_id}:round:{round_id}"
+    record = r.hgetall(key)
+    epochs = r.smembers(f"{key}:epochs")
+    first, last = float(record.get("first_seen", 0)), float(record.get("last_seen", 0))
+    return {"epochs_seen": len(epochs), "train_seconds": last - first}
+
+def get_trust(hospital_id, node_id):
+    return float(r.hget(f"twin:hospital:{hospital_id}:node:{node_id}:profile", "trust") or 1.0)
+
+def set_trust(hospital_id, node_id, trust):
+    r.hset(f"twin:hospital:{hospital_id}:node:{node_id}:profile", "trust", trust)
+
 def get_live_nodes(hospital_id):
     """Returns node_ids that have sent a heartbeat recently."""
     pattern = f"fl:hospital:{hospital_id}:node:*"

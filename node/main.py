@@ -291,12 +291,16 @@ async def handle_training(epoch_num, round_num, node_state):
 
     # training model
     logger.info("Training loop: Starting training now")
-    # epoch_num is the total epochs for the round; the heartbeat should carry the epoch in progress
-    node_state.set_training(0, round_num, total_epochs=epoch_num)
-    metrics = client_update(
-        DATA_PATH, WEIGHTS_PATH, MODEL_PATH,
-        on_epoch=lambda epoch: node_state.set_training(epoch, round_num, total_epochs=epoch_num)
-    )
+    # epoch_num is the total epochs for the round; the heartbeat should carry the epoch in progress.
+    # "preparing" until epoch 0 actually starts, so the twin doesnt see an epoch that never ran
+    node_state.set_status("preparing", round=round_num, total_epochs=epoch_num)
+
+    def on_epoch(epoch):
+        node_state.set_training(epoch, round_num, total_epochs=epoch_num)
+        # extra heartbeat on every new epoch, so the hospital's twin sees all of them and not just one per 10s
+        send_status()
+
+    metrics = client_update(DATA_PATH, WEIGHTS_PATH, MODEL_PATH, on_epoch=on_epoch)
     node_state.set_idle()
 
     # submitting model to blockchain

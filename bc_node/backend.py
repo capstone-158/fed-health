@@ -530,6 +530,19 @@ def submit_ensemble_probs(submission: dict):
     return {"status": "success", "block_index": block.index, "result": result}
 
 
+@app.post("/record_trust")
+def record_trust(report: dict):
+    # twin trust report of one round, kept on the hospital's own ledger so it can be audited later
+    ledger_name = report["hospital_id"]
+    block = ledgers[ledger_name].append_block({"type": "TRUST", "kind": "trust", "round": report["round"], "nodes": report["nodes"]})
+    logger.info(f"Trust report for round {report['round']} added to {ledger_name} as block {block.index}")
+
+    for node in bc_nodes_registry:
+        threading.Thread(target=replicate_block, args=(node, ledger_name, block.to_dict()), daemon=True).start()
+
+    return {"status": "success", "block_index": block.index}
+
+
 @app.get("/ensemble_result")
 def get_ensemble_result():
     chain = ledgers["multi_inst"].chain

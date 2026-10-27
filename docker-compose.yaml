@@ -91,6 +91,9 @@ services:
       MICRO_BATCH: ${MICRO_BATCH:-128}
       ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
       NUM_CLASSES: ${NUM_CLASSES:-9}
+      TWIN_TRUST: ${TWIN_TRUST:-off}
+      ATTACK: ${ATTACK:-none}
+      ATTACK_NODE: ${ATTACK_NODE:-}
       H_NODE_NAME: hospital_0
       REDIS_HOST: redis_h0
       nodes: "node_0,node_1"
@@ -117,6 +120,9 @@ services:
       MICRO_BATCH: ${MICRO_BATCH:-128}
       ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
       NUM_CLASSES: ${NUM_CLASSES:-9}
+      TWIN_TRUST: ${TWIN_TRUST:-off}
+      ATTACK: ${ATTACK:-none}
+      ATTACK_NODE: ${ATTACK_NODE:-}
       H_NODE_NAME: hospital_1
       REDIS_HOST: redis_h1
       nodes: "node_2,node_3"
@@ -145,6 +151,9 @@ services:
       MICRO_BATCH: ${MICRO_BATCH:-128}
       ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
       NUM_CLASSES: ${NUM_CLASSES:-9}
+      TWIN_TRUST: ${TWIN_TRUST:-off}
+      ATTACK: ${ATTACK:-none}
+      ATTACK_NODE: ${ATTACK_NODE:-}
       H_NODE_NAME: hospital_2
       REDIS_HOST: redis_h2
       nodes: "node_4,node_5"
@@ -171,6 +180,9 @@ services:
       MICRO_BATCH: ${MICRO_BATCH:-128}
       ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
       NUM_CLASSES: ${NUM_CLASSES:-9}
+      TWIN_TRUST: ${TWIN_TRUST:-off}
+      ATTACK: ${ATTACK:-none}
+      ATTACK_NODE: ${ATTACK_NODE:-}
       REDIS_HOST: redis_h0
     networks:
       - mednet
@@ -192,6 +204,9 @@ services:
       MICRO_BATCH: ${MICRO_BATCH:-128}
       ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
       NUM_CLASSES: ${NUM_CLASSES:-9}
+      TWIN_TRUST: ${TWIN_TRUST:-off}
+      ATTACK: ${ATTACK:-none}
+      ATTACK_NODE: ${ATTACK_NODE:-}
       REDIS_HOST: redis_h0
     networks:
       - mednet
@@ -213,6 +228,9 @@ services:
       MICRO_BATCH: ${MICRO_BATCH:-128}
       ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
       NUM_CLASSES: ${NUM_CLASSES:-9}
+      TWIN_TRUST: ${TWIN_TRUST:-off}
+      ATTACK: ${ATTACK:-none}
+      ATTACK_NODE: ${ATTACK_NODE:-}
       REDIS_HOST: redis_h1
     networks:
       - mednet
@@ -234,6 +252,9 @@ services:
       MICRO_BATCH: ${MICRO_BATCH:-128}
       ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
       NUM_CLASSES: ${NUM_CLASSES:-9}
+      TWIN_TRUST: ${TWIN_TRUST:-off}
+      ATTACK: ${ATTACK:-none}
+      ATTACK_NODE: ${ATTACK_NODE:-}
       REDIS_HOST: redis_h1
     networks:
       - mednet
@@ -255,6 +276,9 @@ services:
       MICRO_BATCH: ${MICRO_BATCH:-128}
       ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
       NUM_CLASSES: ${NUM_CLASSES:-9}
+      TWIN_TRUST: ${TWIN_TRUST:-off}
+      ATTACK: ${ATTACK:-none}
+      ATTACK_NODE: ${ATTACK_NODE:-}
       REDIS_HOST: redis_h2
     networks:
       - mednet
@@ -276,6 +300,9 @@ services:
       MICRO_BATCH: ${MICRO_BATCH:-128}
       ROUND_TIMEOUT: ${ROUND_TIMEOUT:-600}
       NUM_CLASSES: ${NUM_CLASSES:-9}
+      TWIN_TRUST: ${TWIN_TRUST:-off}
+      ATTACK: ${ATTACK:-none}
+      ATTACK_NODE: ${ATTACK_NODE:-}
       REDIS_HOST: redis_h2
     networks:
       - mednet

@@ -53,7 +53,7 @@ def init_global_weights():
     logger.info(f"Initialised global weights at {GLOBAL_WEIGHTS_PATH}")
 
 
-# ---------------- talking to this hospital's private blockchain B_i ----------------
+# ---------------- talking to this hospital's private blockchain ----------------
 
 def get_ledger_blocks():
     hospital_id = os.getenv("H_ID", "0")
@@ -77,7 +77,7 @@ def fetch_verified_state_dict(model_hash):
 def get_round_models(round_id, node_ids, round_started_at):
     '''
     Collect M_i of every node that trained in this round from B_i.
-    returns [(state_dict, num_samples), ...] as perform_fedavg expects
+    returns [{"node_id", "state_dict", "num_samples"}, ...], num_samples is what the node claimed
     '''
     latest = {}
     for block in get_ledger_blocks():
@@ -98,7 +98,7 @@ def get_round_models(round_id, node_ids, round_started_at):
     for node_id, payload in latest.items():
         try:
             state_dict = fetch_verified_state_dict(payload["model_hash"])
-            client_updates.append((state_dict, payload["metrics"]["dataset_len"]))
+            client_updates.append({"node_id": node_id, "state_dict": state_dict, "num_samples": payload["metrics"]["dataset_len"]})
             logger.info(f"Round {round_id}: hash matches, got verified model of node {node_id} ({payload['metrics']['dataset_len']} samples)")
         except Exception as e:
             logger.error(f"Round {round_id}: skipping model of node {node_id}: {e}")
@@ -123,6 +123,14 @@ def submit_global_model(round_id):
                          headers={"metadata": json.dumps(metadata)}, content=f.read(), timeout=300)
     res.raise_for_status()
     logger.info(f"Global model of round {round_id} recorded on blockchain: {res.json()}")
+
+
+def record_trust(round_id, report):
+    hospital_id = os.getenv("H_ID", "0")
+    res = httpx.post(f"{BLOCKCHAIN_BACKEND_URL}/record_trust",
+                     json={"hospital_id": f"hospital_{hospital_id}", "round": round_id, "nodes": report}, timeout=60)
+    res.raise_for_status()
+    logger.info(f"Twin trust: round {round_id} report recorded on blockchain: block {res.json()['block_index']}")
 
 
 def get_latest_global_model_id():
