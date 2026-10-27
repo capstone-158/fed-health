@@ -31,7 +31,10 @@ import json
 import os
 from shared.config import BLOCKCHAIN_BACKEND_URL
 from shared.commons import get_logger, get_model
-from crypto import *
+try:
+    from .crypto import *
+except ImportError:
+    from crypto import *
 
 priv_key = None
 pub_pem = None

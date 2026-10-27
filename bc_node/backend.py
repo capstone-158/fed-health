@@ -57,10 +57,14 @@ from shared.commons import *
 import time
 from ping3 import ping
 import threading
-from ledger import ledgers, Block
+try:
+    from .ledger import ledgers, Block
+except ImportError:  # direct server.py launch inside the container
+    from ledger import ledgers, Block
 
 logger = get_logger()
 app = FastAPI()
+MODEL_STORE = os.getenv("MODEL_STORE", "/app/client_models")
 
 # os.makedirs("/models")
 
@@ -173,8 +177,8 @@ def recv_model_and_hash():
         
         logger.info(f"Listening for model broadcasts on port {BLOCKCHAIN_PORTS['broadcast_port']}")
 
-        os.makedirs("/app/client_models/stage", exist_ok=True)
-        os.makedirs("/app/client_models/commit", exist_ok=True)
+        os.makedirs(f"{MODEL_STORE}/stage", exist_ok=True)
+        os.makedirs(f"{MODEL_STORE}/commit", exist_ok=True)
 
         while True:
             client_sock, addr = sock.accept()
@@ -199,7 +203,7 @@ def handle_connection(client_sock, addr):
                 logger.info(f"sent ok to {addr}, ready to receive model")
 
                 hasher = hashlib.sha256()
-                stage_path = f"/app/client_models/stage/model_{time.time()}.pt"
+                stage_path = f"{MODEL_STORE}/stage/model_{time.time()}.pt"
 
                 with open(stage_path, "wb") as f:
                     while True:
@@ -222,7 +226,7 @@ def handle_connection(client_sock, addr):
 
                     client_sock.sendall(model_hash.encode())
 
-                final_path = f"/app/client_models/commit/{model_hash}.pt"
+                final_path = f"{MODEL_STORE}/commit/{model_hash}.pt"
                 # listen for commit signal then save the model to a final path
                 signal = client_sock.recv(16).decode()
                 if signal == "COMMIT":
@@ -243,14 +247,12 @@ def handle_connection(client_sock, addr):
                 block = Block.from_dict(block_dict)
                 ledger = ledgers[ledger_name]
 
-                # check + append under the lock, other handler threads may be replicating too
-                with ledger.lock:
-                    if block.prev_hash != ledger.last_block().block_hash:
-                        logger.info("Chain mismatch")
-                        client_sock.sendall(b"ERROR")
-                        return
-                    ledger.chain.append(block)
-                    ledger._persist()
+                try:
+                    ledger.accept_block(block)
+                except ValueError as exc:
+                    logger.warning(f"Rejected replicated block: {exc}")
+                    client_sock.sendall(b"ERROR")
+                    return
 
                 client_sock.sendall(b"OK")
                 logger.info(f"Replicated block {block.index} into {ledger_name}")
@@ -278,10 +280,10 @@ async def submit_local_model(req: Request):
 
     node_queues = {}
     threads = []
-    results = {}
     sockets = {}
 
     bc_nodes = list(bc_nodes_registry.items())
+    results = {node: None for node, _ in bc_nodes}
 
     '''
     here, we are essentially creating a message queue for each node in the blockchain netowrk thats alive.
@@ -308,9 +310,9 @@ async def submit_local_model(req: Request):
     hasher = hashlib.sha256()
 
     # leader keeps its own copy too, so the hospital can fetch it back for aggregation
-    os.makedirs("/app/client_models/stage", exist_ok=True)
-    os.makedirs("/app/client_models/commit", exist_ok=True)
-    stage_path = f"/app/client_models/stage/leader_{time.time()}.pt"
+    os.makedirs(f"{MODEL_STORE}/stage", exist_ok=True)
+    os.makedirs(f"{MODEL_STORE}/commit", exist_ok=True)
+    stage_path = f"{MODEL_STORE}/stage/leader_{time.time()}.pt"
 
     with open(stage_path, "wb") as f:
         async for chunk in req.stream():
@@ -356,7 +358,7 @@ async def submit_local_model(req: Request):
             sock.close()
 
     if all_same:
-        os.replace(stage_path, f"/app/client_models/commit/{model_hash}.pt")
+        os.replace(stage_path, f"{MODEL_STORE}/commit/{model_hash}.pt")
     else:
         os.remove(stage_path)
 
@@ -449,7 +451,7 @@ def get_committed_model(model_hash: str):
     # hash comes from the ledger; only allow hex so this can't be used to read other files
     if not re.fullmatch(r"[0-9a-f]{64}", model_hash):
         raise HTTPException(400, "Invalid model hash")
-    path = f"/app/client_models/commit/{model_hash}.pt"
+    path = f"{MODEL_STORE}/commit/{model_hash}.pt"
     if not os.path.exists(path):
         logger.error(f"Model {model_hash} requested but never committed")
         raise HTTPException(404, "Model not committed")

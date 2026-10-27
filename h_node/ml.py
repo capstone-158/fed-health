@@ -1,4 +1,5 @@
 import torch
+import math
 import torch.nn.functional as F
 from shared.config import BATCH_SIZE
 from shared.commons import get_model, get_logger
@@ -18,7 +19,14 @@ def perform_fedavg(client_updates, global_weights_path):
     if not client_updates:
         raise ValueError("client_updates empty")
 
-    total_samples = sum(num_samples for _, num_samples in client_updates)
+    weights = [weight for _, weight in client_updates]
+    total_samples = sum(weights)
+    if any(not math.isfinite(w) or w < 0 for w in weights) or not math.isfinite(total_samples) or total_samples <= 0:
+        raise ValueError("aggregation weights must be finite, nonnegative, and have a positive total")
+    reference = client_updates[0][0]
+    for state, _ in client_updates:
+        if state.keys() != reference.keys() or any(state[k].shape != reference[k].shape for k in reference):
+            raise ValueError("client model keys and tensor shapes must match")
 
     avg_state_dict = {}
     first_state_dict = client_updates[0][0] #to know shape

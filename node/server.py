@@ -4,13 +4,14 @@ import os
 import time
 import threading
 import json
-from main import heartbeat_loop
+try:
+    from .main import heartbeat_loop, handle_training, node_state
+except ImportError:
+    from main import heartbeat_loop, handle_training, node_state
 from shared.commons import *
 import os
 from shared import state_manager
-from main import handle_training, node_state
 import asyncio
-from training.ml_utils import client_update
 
 logger = get_logger()
 logger.info(type(os.getenv("NODE_ID")))
@@ -18,8 +19,6 @@ logger.info(type(os.getenv("NODE_ID")))
 rounds_completed = 0
 
 logger.info("Starting edge Server...")
-status_thread = threading.Thread(target=heartbeat_loop, daemon=True)
-status_thread.start()
 
 # TODO: add a while look to wait for a main signal. upon recieving the main signal, only then the real training stuff starts
 def listen(channel_name, redis_obj):
@@ -61,12 +60,18 @@ def listen(channel_name, redis_obj):
                     
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse message: {e}, raw data: {msg['data']}")
+            except Exception:
+                logger.exception("Node command failed; waiting for the next command")
         else:
             logger.debug(f"Received non-message event: {msg['type']}")
 
-red = state_manager.get_connection()
-sub_thread = threading.Thread(target=listen, daemon=True, args=("fl_commands", red))
-sub_thread.start()
+def main():
+    threading.Thread(target=heartbeat_loop, daemon=True).start()
+    red = state_manager.get_connection()
+    threading.Thread(target=listen, daemon=True, args=("fl_commands", red)).start()
+    while True:
+        time.sleep(60)
 
-while True:
-    time.sleep(60)
+
+if __name__ == "__main__":
+    main()

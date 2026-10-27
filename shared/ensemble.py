@@ -17,6 +17,31 @@ logger = get_logger()
 STEPS = [round(0.1 * i, 1) for i in range(11)]
 
 
+def validate_predictions(probs_list, labels, context="predictions"):
+    """Reject malformed evaluation data before optimization or scoring."""
+    labels = np.asarray(labels)
+    if labels.ndim != 1 or not labels.size:
+        raise ValueError(f"{context}: labels must be a nonempty 1D array")
+    if not np.issubdtype(labels.dtype, np.integer) or (labels < 0).any():
+        raise ValueError(f"{context}: labels must be nonnegative integers")
+    if not probs_list:
+        raise ValueError(f"{context}: at least one probability array is required")
+    shape = None
+    for probs in probs_list:
+        probs = np.asarray(probs)
+        if probs.ndim != 2 or probs.shape[0] != len(labels) or probs.shape[1] < 2:
+            raise ValueError(f"{context}: probabilities must have shape (samples, classes)")
+        if shape is not None and probs.shape != shape:
+            raise ValueError(f"{context}: incompatible probability shapes")
+        shape = probs.shape
+        if not np.issubdtype(probs.dtype, np.number) or not np.isfinite(probs).all():
+            raise ValueError(f"{context}: probabilities must contain finite numeric values")
+        if (probs < 0).any() or (probs > 1).any() or not np.allclose(probs.sum(axis=1), 1):
+            raise ValueError(f"{context}: probability rows must be nonnegative and sum to 1")
+        if (labels >= probs.shape[1]).any():
+            raise ValueError(f"{context}: labels exceed the number of classes")
+
+
 def accuracy(probs, labels):
     return float((np.argmax(probs, axis=1) == labels).mean())
 
@@ -27,6 +52,7 @@ def grid_search_weights(probs_list, labels):
     labels: (N,) true labels
     returns (best_alpha, best_acc), alpha is l1-normalised
     '''
+    validate_predictions(probs_list, labels)
     h = len(probs_list)
     logger.info(f"Grid search: testing {len(STEPS) ** h} weight combinations for {h} hospitals over {len(labels)} samples")
     best_acc = 0.0
@@ -57,6 +83,8 @@ def tune_ensemble(submissions):
     Tunes the weights on the validation split, then reports the test accuracy of
     the weighted ensemble and of each hospital's global model on its own.
     '''
+    if not submissions:
+        raise ValueError("submissions must contain at least one hospital")
     hospitals = sorted(submissions)
     val_labels = np.array(submissions[hospitals[0]]["val"]["labels"])
     test_labels = np.array(submissions[hospitals[0]]["test"]["labels"])
@@ -70,6 +98,10 @@ def tune_ensemble(submissions):
     test_probs = [np.array(submissions[h]["test"]["probs"]) for h in hospitals]
 
     logger.info(f"Tuning ensemble for {hospitals}, global model ids: {[submissions[h]['global_model_id'] for h in hospitals]}")
+    validate_predictions(val_probs, val_labels, "validation")
+    validate_predictions(test_probs, test_labels, "test")
+    if val_probs[0].shape[1] != test_probs[0].shape[1]:
+        raise ValueError("validation and test probability shapes must use the same classes")
     alpha, val_acc = grid_search_weights(val_probs, val_labels)
     test_ensemble = sum(a * p for a, p in zip(alpha, test_probs))
     logger.info(f"Ensemble test accuracy with these weights: {100 * accuracy(test_ensemble, test_labels):.2f}%")

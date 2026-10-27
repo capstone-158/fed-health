@@ -28,10 +28,18 @@ def get_logger():
 
 
 def verify_certificate(certificate, public_key_pem):
-    signature = base64.b64decode(certificate.pop("signature"))
+    if not isinstance(certificate, dict) or not isinstance(certificate.get("signature"), str):
+        raise ValueError("certificate must contain a base64 signature")
+    try:
+        signature = base64.b64decode(certificate["signature"], validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise ValueError("certificate signature must be valid base64") from exc
+    if len(signature) != 64:
+        raise ValueError("certificate signature must be 64 bytes")
+    unsigned_certificate = {k: v for k, v in certificate.items() if k != "signature"}
 
     cert_bytes = json.dumps(
-        certificate,
+        unsigned_certificate,
         sort_keys=True,
         separators=(",", ":")
     ).encode("utf-8")

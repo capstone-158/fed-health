@@ -20,3 +20,5 @@ side_shit/
 results/
 improvements/
 docs/
+# Test dependencies are part of the reproducible test setup.
+!requirements-test.txt

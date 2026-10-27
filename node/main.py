@@ -24,7 +24,10 @@ from shared.commons import create_socket, get_logger
 from shared.state_manager import get_connection
 import uuid
 import httpx
-from training.ml_utils import client_update
+try:
+    from .training.ml_utils import client_update
+except ImportError:
+    from training.ml_utils import client_update
 
 # TODO: fix the setter functions
 logger = get_logger()
@@ -146,6 +149,7 @@ async def upload_model_to_blockchain(model_path, model_metrics, round_num=None):
                 content=stream_file(),
             )
 
+            response.raise_for_status()
             bc_response = response.json()
             logger.info(f"Blockchain response: {bc_response}")
 
@@ -277,36 +281,45 @@ async def handle_training(epoch_num, round_num, node_state):
         - getting global weights from the hospital
         - training the global model on the dataset
         - submitting the model to the blockchain for verification
-        
+
         next up:
         - where do u save the model after consensus
         - how does the hospital get the model
         - send "done" signal in redis pub/sub between node and hospital
     '''
-    
-    # loading the global model
-    endpoint = "/get_global_weights"
-    await download_weights(HOSPITAL_URL + endpoint, WEIGHTS_PATH)
-    logger.info("Training loop: Downloaded weights")
 
-    # training model
-    logger.info("Training loop: Starting training now")
-    # epoch_num is the total epochs for the round; the heartbeat should carry the epoch in progress.
-    # "preparing" until epoch 0 actually starts, so the twin doesnt see an epoch that never ran
-    node_state.set_status("preparing", round=round_num, total_epochs=epoch_num)
+    try:
+        # loading the global model
+        endpoint = "/get_global_weights"
+        await download_weights(HOSPITAL_URL + endpoint, WEIGHTS_PATH)
+        logger.info("Training loop: Downloaded weights")
 
-    def on_epoch(epoch):
-        node_state.set_training(epoch, round_num, total_epochs=epoch_num)
-        # extra heartbeat on every new epoch, so the hospital's twin sees all of them and not just one per 10s
+        # training model
+        logger.info("Training loop: Starting training now")
+        # epoch_num is the total epochs for the round; the heartbeat should carry the epoch in progress.
+        # "preparing" until epoch 0 actually starts, so the twin doesnt see an epoch that never ran
+        node_state.set_status("preparing", round=round_num, total_epochs=epoch_num)
+
+        def on_epoch(epoch):
+            node_state.set_training(epoch, round_num, total_epochs=epoch_num)
+            # extra heartbeat on every new epoch, so the hospital's twin sees all of them and not just one per 10s
+            send_status()
+
+        metrics = client_update(DATA_PATH, WEIGHTS_PATH, MODEL_PATH, on_epoch=on_epoch)
+        node_state.set_idle()
+
+        # submitting model to blockchain
+        logger.info("Sending model to blockchain for verification")
+        res = await upload_model_to_blockchain(MODEL_PATH, metrics, round_num)
+        logger.info(f"Response received from blockchain: {res}")
+
+        if res.get("status") != "success":
+            raise RuntimeError(f"Model upload did not reach consensus: {res.get('status')}")
+
+        # barrier checkin
+        signal_round_complete(round_num, os.getenv("NODE_ID"), os.getenv("H_ID"))
+    except Exception as exc:
+        node_state.set_error(str(exc), round=round_num)
         send_status()
-
-    metrics = client_update(DATA_PATH, WEIGHTS_PATH, MODEL_PATH, on_epoch=on_epoch)
-    node_state.set_idle()
-
-    # submitting model to blockchain
-    logger.info("Sending model to blockchain for verification")
-    res = await upload_model_to_blockchain(MODEL_PATH, metrics, round_num)
-    logger.info(f"Response received from blockchain: {res}")
-
-    # barrier checkin
-    signal_round_complete(round_num, os.getenv("NODE_ID"), os.getenv("H_ID"))
+        logger.exception("Training round %s failed", round_num)
+        raise

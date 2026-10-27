@@ -4,46 +4,52 @@ import torch
 import uvicorn
 import threading
 import logging
-from heartbeat_handler import listen
-from crypto import *    # custom module
+try:
+    from .heartbeat_handler import listen
+    from .crypto import *
+    from . import orchestrator, backend, twin_trust
+    from .ml import perform_fedavg, predict_probs
+except ImportError:  # direct container launch
+    from heartbeat_handler import listen
+    from crypto import *
+    import orchestrator, backend, twin_trust
+    from ml import perform_fedavg, predict_probs
 from shared import state_manager
 from shared.commons import *
 import os
 from cryptography.hazmat.primitives import serialization
 from shared.config import CLIENTS, HOSPITAL_BACKEND_PORT, HEARTBEAT_INTERVAL, ROUNDS, EPOCHS, ROUND_TIMEOUT, BLOCKCHAIN_BACKEND_URL, VAL_DATA_PATH, TEST_DATA_PATH, TWIN_TRUST
-import orchestrator
-import backend
 import httpx
-from ml import perform_fedavg, predict_probs
 from shared.ensemble import format_summary
-import twin_trust
 
 logger = get_logger()
 
-os.makedirs("./secrets", exist_ok=True)
+def initialize_keys():
+    os.makedirs("./secrets", exist_ok=True)
 
-private_key_path = "./secrets/private_key.pem"
-public_key_path = "./secrets/public_key.pem"
+    private_key_path = "./secrets/private_key.pem"
+    public_key_path = "./secrets/public_key.pem"
 
 
-if os.path.exists(private_key_path) and os.path.exists(public_key_path):
-    with open(private_key_path, "rb") as f:
-        priv_pem = f.read()
-    with open(public_key_path, "rb") as f:
-        pub_pem = f.read()
-    
-    priv_key = serialization.load_pem_private_key(priv_pem, password=None)
-else:
-    priv_key, priv_pem, pub_pem = generate_keys()
-    
-    with open(private_key_path, "wb") as f:
-        f.write(priv_pem)
-    
-    with open(public_key_path, "wb") as f:
-        f.write(pub_pem)
-    
-backend.priv_key = priv_key
-backend.pub_pem = pub_pem
+    if os.path.exists(private_key_path) and os.path.exists(public_key_path):
+        with open(private_key_path, "rb") as f:
+            priv_pem = f.read()
+        with open(public_key_path, "rb") as f:
+            pub_pem = f.read()
+
+        priv_key = serialization.load_pem_private_key(priv_pem, password=None)
+    else:
+        priv_key, priv_pem, pub_pem = generate_keys()
+
+        with open(private_key_path, "wb") as f:
+            f.write(priv_pem)
+
+        with open(public_key_path, "wb") as f:
+            f.write(pub_pem)
+
+    backend.priv_key = priv_key
+    backend.pub_pem = pub_pem
+
 
 def precheck():
     redis_conn = state_manager.get_connection()
@@ -90,15 +96,13 @@ def listen_done():
 
 logger.info("Starting hospital server...")
 
-heartbeat_thread = threading.Thread(target=listen, daemon=True)
-heartbeat_thread.start()
 
 def pub(round_id, node_ids, epochs=20, model_ref=None):
     r = state_manager.get_connection()
 
     hospital_id = os.getenv("H_ID")
     state_manager.set_hospital_current_round(hospital_id, round_id)
-    state_manager.set_round_state(round_id, "started") 
+    state_manager.set_round_state(round_id, "started")
 
     msg = {
         "type": "start training",
@@ -129,7 +133,7 @@ def wait_for_round(round_id, hospital_id, timeout=ROUND_TIMEOUT):
         if count >= CLIENTS:
             logger.info(f"Round {round_id} complete.")
             return True
-        
+
         time.sleep(2)
 
     return False
@@ -255,21 +259,28 @@ def submit_for_ensemble():
     except Exception as e:
         logger.error(f"Ensemble: could not submit probabilities for ensemble tuning: {e}")
 
-listen_done_thread = threading.Thread(target=listen_done, daemon=True)
-listen_done_thread.start()
+def main():
+    initialize_keys()
+    threading.Thread(target=listen, daemon=True).start()
+    listen_done_thread = threading.Thread(target=listen_done, daemon=True)
+    listen_done_thread.start()
 
-orchestration_thread = threading.Thread(target=orchestration_loop, daemon=True)
-orchestration_thread.start()
+    orchestration_thread = threading.Thread(target=orchestration_loop, daemon=True)
+    orchestration_thread.start()
 
-while True:
-    try:
-        uvicorn.run(
-            "backend:app",
-            host="0.0.0.0",
-            port=HOSPITAL_BACKEND_PORT,
-            reload=False
-        )
-    except Exception as e:
-        logger.error(f"Server crashed: {e}")
-        logger.info("Restarting in 5 seconds...")
-        time.sleep(5)
+    while True:
+        try:
+            uvicorn.run(
+                "backend:app",
+                host="0.0.0.0",
+                port=HOSPITAL_BACKEND_PORT,
+                reload=False
+            )
+        except Exception as e:
+            logger.error(f"Server crashed: {e}")
+            logger.info("Restarting in 5 seconds...")
+            time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()

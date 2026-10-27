@@ -13,9 +13,9 @@ class Block:
     def __init__(self, index, prev_hash, payload, timestamp=None, block_hash=None):
         self.index = index
         self.prev_hash = prev_hash
-        self.timestamp = timestamp or time.time()
+        self.timestamp = time.time() if timestamp is None else timestamp
         self.payload = payload
-        self.block_hash = block_hash or self.compute_hash()
+        self.block_hash = self.compute_hash() if block_hash is None else block_hash
 
     def compute_hash(self):
         """
@@ -43,6 +43,8 @@ class Block:
 
     @staticmethod
     def from_dict(d):
+        if not isinstance(d.get("block_hash"), str):
+            raise ValueError("Invalid block hash")
         return Block(
             index=d["index"],
             prev_hash=d["prev_hash"],
@@ -68,7 +70,8 @@ class Ledger:
         genesis_block = Block(
             index=0,
             prev_hash="0",
-            payload={"type": "GENESIS"}
+            payload={"type": "GENESIS"},
+            timestamp=0.0
         )
         self.chain.append(genesis_block)
         self._persist()
@@ -82,9 +85,28 @@ class Ledger:
         self.chain = []
         for b in data:
             blk = Block.from_dict(b)
+            previous = self.chain[-1] if self.chain else None
+            self._validate_block(blk, previous)
             self.chain.append(blk)
         if len(self.chain) == 0:
             self._create_genesis_block()
+
+    @staticmethod
+    def _validate_block(block, previous):
+        if block.block_hash != block.compute_hash():
+            raise ValueError("Invalid block hash: block data was modified")
+        if previous is None:
+            if block.index != 0 or block.prev_hash != "0" or block.payload != {"type": "GENESIS"}:
+                raise ValueError("Invalid genesis block")
+        elif block.index != previous.index + 1 or block.prev_hash != previous.block_hash:
+            raise ValueError("Invalid block linkage or index")
+
+    def accept_block(self, block):
+        """Validate a replicated block before mutating or persisting the chain."""
+        with self.lock:
+            self._validate_block(block, self.last_block())
+            self.chain.append(block)
+            self._persist()
 
     def _persist(self):
         blocks = []
